@@ -1,0 +1,4 @@
+sku,peso_unit_est_g,COGS_unit,precio_venta_unit_clp,costo_por_kg,precio_por_kg,categoria_benchmark,min_clp_kg,max_clp_kg,band_ok,margen_bruto_pct
+Hogaza_masam_800g,800.0,839.1489361702128,4800,1048.936170212766,6000.0,artesanal_premium_masam,5000,7000,True,82.51773049645391
+Baguette_250g,250.0,214.98947368421054,800,859.9578947368421,3200.0,artesanal_barrio_valor,2500,3200,True,73.12631578947368
+Marraqueta_120g,120.0,102.43052631578948,300,853.5877192982457,2500.0,pan_corriente_barrio,2000,2500,True,65.85649122807018

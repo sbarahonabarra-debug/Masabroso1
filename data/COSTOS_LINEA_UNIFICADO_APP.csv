@@ -1,0 +1,15 @@
+﻿Producto,Insumo,Cantidad_por_ud,Unidad,Merma_pct,Cantidad_efectiva_ud,Unidad_costo_base,precio_base_unit_CLP,Cantidad_base_precio,Costo_insumo_CLP
+PAN — Marraqueta 100g (econ),Harina Fuerte 0,64.0,g,3,65.92,kg,880.0,0.06592,58.01
+PAN — Marraqueta 100g (econ),Levadura,1.5,g,0,1.5,kg,2500.0,0.0015,3.75
+PAN — Marraqueta 100g (econ),Sal fina,1.5,g,0,1.5,kg,300.0,0.0015,0.45
+PAN — Marraqueta 100g (econ),Agua,33.0,g,0,,,,,
+CROISSANT — 70g (econ),Harina Fina 0000,38.0,g,3,39.14,kg,760.0,0.03914,29.75
+CROISSANT — 70g (econ),Mantequilla sin Sal,20.0,g,0,20.0,kg,11000.0,0.02,220.0
+CROISSANT — 70g (econ),Azucar Granulada,3.0,g,0,3.0,kg,1200.0,0.003,3.6
+CROISSANT — 70g (econ),Levadura,0.8,g,0,0.8,kg,2500.0,0.0008,2.0
+CROISSANT — 70g (econ),Sal fina,0.7,g,0,0.7,kg,300.0,0.0007,0.21
+CROISSANT — 70g (econ),Agua,7.5,g,0,,,,,
+TROZO — Mil Hojas 1/8 (A PDF),Ingredientes Mil Hojas (c/ merma) — prorrata 1/8,0.125,u,0,0.125,u,9471.0,0.125,1183.88
+TROZO — Mil Hojas 1/8 (A PDF),Packaging torta — prorrata 1/8,0.125,u,0,0.125,u,1200.0,0.125,150.0
+TROZO — Mil Hojas 1/8 (A PDF),Energía/operativa — prorrata 1/8,0.125,u,0,0.125,u,1000.0,0.125,125.0
+CAFÉ — Taza estándar,Cafe en grano,18.0,g,7,19.26,kg,35000.0,0.01926,674.1

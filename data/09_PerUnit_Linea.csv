@@ -1,0 +1,5 @@
+﻿Linea,Energia_gas_CLP_por_ud,Logistica_CLP_por_ud,Unidad,kWh_por_unidad,Notas
+Pan,83.7,0.0,kg,0.521,Mezcla 0.011 + Fermentación 0.15 + Horno 0.36 kWh/kg
+Bolleria,9.8,0.0,ud,0.06125,Laminadora 0.0028 + Fermentación 0.0225 + Horno 0.036 kWh/ud
+Pasteleria,75.5,0.0,ud,0.47,Horno 0.45 + misceláneos 0.02 kWh/ud (trozo de milhojas)
+Cafe,24.5,0.0,taza,0.1525,Standby 7.89 kWh/d ÷60 + brew+molino 0.021 kWh/taza

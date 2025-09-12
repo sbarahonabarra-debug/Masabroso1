@@ -1,0 +1,5 @@
+[OK] Cargado: recetas.csv → 3 filas, 5 columnas
+[OK] Cargado: insumos.csv → 5 filas, 2 columnas
+[OK] Cargado: recipe_lines.csv → 12 filas, 3 columnas
+[OK] Cargado: pricing.csv → 3 filas, 4 columnas
+[OK] Cargado: benchmark_pan_kg.csv → 3 filas, 3 columnas

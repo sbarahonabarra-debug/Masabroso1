@@ -1,0 +1,4 @@
+﻿Producto,Insumo,Cantidad_por_ud,Unidad,Merma_pct,Cantidad_efectiva_ud,Unidad_costo_base,precio_base_unit_CLP,Cantidad_base_precio,Costo_insumo_CLP
+Complementarios Huevo (1 unidad),Huevos tamaño L,1,u,0,1,u,260,1,260
+Complementarios Queso (1 kg),Queso gauda,1,kg,0,1,kg,7500,1,7500
+Complementarios Mermelada (1 kg),Mermelada fruta,1,kg,0,1,kg,4500,1,4500
