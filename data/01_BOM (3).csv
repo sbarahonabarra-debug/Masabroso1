@@ -1,0 +1,30 @@
+Linea,SKU,Insumo,Cantidad_por_ud,Unidad,Merma_pct
+Panaderia,Marraqueta 100g (econ),Harina Fuerte 0,64.0,g,3
+Panaderia,Marraqueta 100g (econ),Levadura,1.5,g,0
+Panaderia,Marraqueta 100g (econ),Sal fina,1.5,g,0
+Panaderia,Marraqueta 100g (econ),Agua,33.0,g,0
+Bolleria,Croissant 70g (econ),Harina Fina 0000,38.0,g,3
+Bolleria,Croissant 70g (econ),Mantequilla sin Sal,20.0,g,0
+Bolleria,Croissant 70g (econ),Azucar Granulada,3.0,g,0
+Bolleria,Croissant 70g (econ),Levadura,0.8,g,0
+Bolleria,Croissant 70g (econ),Sal fina,0.7,g,0
+Bolleria,Croissant 70g (econ),Agua,7.5,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Harina Fina 0000,32.0,g,3
+Pasteleria,Trozo Pasteleria 100g (econ),Azucar Granulada,28.0,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Mantequilla sin Sal,10.0,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Leche Entera,19.4,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Cacao,6.0,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Polvo de Hornear,1.5,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Sal fina,0.5,g,0
+Pasteleria,Trozo Pasteleria 100g (econ),Agua,2.6,g,0
+Cafe,Cafe 20g (econ),Cafe molido,10.0,g,0
+Cafe,Cafe 20g (econ),Agua,10.0,g,0
+Panaderia,Concentrado Masa Madre 1kg,Harina (base masa tradicional),4000,g,3
+Panaderia,Concentrado Masa Madre 1kg,Agua,0,g,0
+Panaderia,Pan Masa Madre 1kg,Harina integral,1000,g,3
+Panaderia,Pan Masa Madre 1kg,Masa madre (concentrado),200,g,0
+Panaderia,Pan Masa Madre 1kg,Sal fina,20,g,0
+Panaderia,Paneton Masa Madre 1kg,Harina integral,1000,g,3
+Panaderia,Paneton Masa Madre 1kg,Masa madre (concentrado),200,g,0
+Panaderia,Paneton Masa Madre 1kg,Sal fina,20,g,0
+Panaderia,Paneton Masa Madre 1kg,Semillas mixtas (zapallo/linaza/chia/maravilla),200,g,0

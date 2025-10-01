@@ -1,5 +1,4 @@
-[OK] Cargado: recetas.csv → 3 filas, 5 columnas
-[OK] Cargado: insumos.csv → 5 filas, 2 columnas
-[OK] Cargado: recipe_lines.csv → 12 filas, 3 columnas
-[OK] Cargado: pricing.csv → 3 filas, 4 columnas
-[OK] Cargado: benchmark_pan_kg.csv → 3 filas, 3 columnas
+VALIDACION CANONICO: COSTOS_LINEA_UNIFICADO_APP.csv
+- Filas: 14
+- Columnas detectadas: {'Producto': 'Producto', 'Insumo': 'Insumo', 'Cantidad_por_ud': 'Cantidad_por_ud', 'Unidad': 'Unidad', 'Merma_pct': 'Merma_pct', 'Unidad_costo_base': 'Unidad_costo_base', 'precio_base_unit_CLP': 'precio_base_unit_CLP', 'Cantidad_base_precio': 'Cantidad_base_precio', 'Costo_insumo_CLP': 'Costo_insumo_CLP'}
+⚠️ Ver hallazgos en la tabla 'Validación – hallazgos'.
