@@ -1625,6 +1625,153 @@ with tabs[3]:
     metric_clp("Total líneas (año)", total_lineas)
     metric_clp("Total complementarios (año)", total_comp)
     metric_clp("Total general (año)", total_general)
+# ============================ 02c – Planeación PRO (por SKU) =================
+# Catálogo inicial (ajústalo a gusto)
+PRO_SKUS = [
+    {"Linea": "Pan (kg)", "SKU": "Pan Masa Madre 1kg",     "precio_sugerido": 3500, "base_dia": 40},
+    {"Linea": "Pan (kg)", "SKU": "Paneton Masa Madre 1kg", "precio_sugerido": 5000, "base_dia": 15},
+    # Si quisieras vender el concentrado al público, descomenta:
+    # {"Linea": "Pan (kg)", "SKU": "Concentrado Masa Madre 1kg", "precio_sugerido": 5200, "base_dia": 0},
+]
+
+# Mapa de factores S por línea (reusa los tuyos)
+_S_FACTORS = {
+    "Pan (kg)": lambda: S_pan,
+    "Bolleria": lambda: S_bol,
+    "Pasteleria": lambda: S_pas,
+    "Cafe": lambda: S_caf,
+}
+def _factor_linea(linea):
+    f = _S_FACTORS.get(linea, lambda: [1.0]*12)
+    return f()
+
+def _unidades_mensuales_desde_base(base_dia, linea, Dv, Rv, Ev):
+    Sv = _factor_linea(linea)
+    arr = np.array([base_dia]*12, dtype=float) * np.array(Dv)*np.array(Rv)*np.array(Ev)*np.array(Sv)
+    return arr.round(0)
+
+# --- Costeo con BOM anidado para Masa Madre ----------------------------------
+_NESTED_INS = _norm_txt("Masa madre (concentrado)")
+_NESTED_SKU = "Concentrado Masa Madre 1kg"
+
+def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
+    det, c = costeo_insumos_por_sku(BOM, INS_PREP, sku_name, merma_global_pct=0.0)
+    if det.empty:
+        return det, float(c)
+    if fabricar_concentrado and "__ins_norm__" in det.columns and det["__ins_norm__"].notna().any():
+        mask = det["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
+        if mask.any():
+            det_nested, c_nested = costeo_insumos_por_sku(BOM, INS_PREP, _NESTED_SKU, merma_global_pct=0.0)
+            det = det.copy()
+            det.loc[mask, "Precio_base"] = float(c_nested)
+            det["Consumo_base"] = pd.to_numeric(det.get("Consumo_base"), errors="coerce")
+            det["Precio_base"]  = pd.to_numeric(det.get("Precio_base"),  errors="coerce")
+            det["Subtotal_CLP"] = (det["Consumo_base"] * det["Precio_base"]).fillna(0.0)
+            c = float(det["Subtotal_CLP"].sum())
+    return det, float(c)
+
+# --------------------------- Pestaña PRO -------------------------------------
+with tabs[3]:
+    st.subheader("Planeación y Márgenes por SKU (PRO)")
+
+    st.markdown("**Factores de escala**: usa tus D, R, E y S_linea actuales.")
+    fabricar_conc = st.checkbox("Fabricar Concentrado de Masa Madre in-house (BOM anidado)", value=True)
+
+    st.markdown("### Catálogo de SKUs (precio y base diaria)")
+    cfg_rows = []
+    for i, item in enumerate(PRO_SKUS):
+        c0, c1, c2, c3 = st.columns([1.2, 3, 1.4, 1.4])
+        c0.write(item["Linea"])
+        c1.write(item["SKU"])
+        p = c2.number_input("Precio", min_value=0, max_value=50_000, value=int(item["precio_sugerido"]),
+                            step=100, key=f"pro_p_{i}")
+        b = c3.number_input("Base día", min_value=0, max_value=10_000, value=int(item["base_dia"]),
+                            step=1, key=f"pro_b_{i}")
+        cfg_rows.append({"Linea": item["Linea"], "SKU": item["SKU"], "Precio": float(p), "Base_dia": int(b)})
+    cfg_df = pd.DataFrame(cfg_rows)
+
+    # Costos unitarios con/ sin anidado
+    costos, detalles = [], {}
+    for sku in cfg_df["SKU"]:
+        det_sku, cunit = costeo_sku_pro(sku, fabricar_concentrado=fabricar_conc)
+        detalles[sku] = det_sku
+        costos.append({"SKU": sku, "Costo_unit": float(cunit)})
+    costos_df = pd.DataFrame(costos)
+
+    # Unidades, ventas y consumo de insumos por mes
+    ventas_rows, consumo_ins_rows = [], []
+    for _, r in cfg_df.iterrows():
+        linea, sku, precio, base_dia = r["Linea"], r["SKU"], r["Precio"], r["Base_dia"]
+        U_mes = _unidades_mensuales_desde_base(base_dia, linea, D, R, E)
+        for i, mes in enumerate(MESES):
+            uds = float(U_mes[i])
+            ventas_rows.append({"Mes": mes, "Linea": linea, "SKU": sku,
+                                "Unidades": uds, "Precio": precio, "Venta_mes": uds * precio})
+            det = detalles.get(sku, pd.DataFrame())
+            if not det.empty and {"Insumo", "Consumo_base", "Unidad_base"}.issubset(det.columns):
+                tmp = det[["Insumo", "Unidad_base", "Consumo_base"]].copy()
+                tmp["Mes"] = mes; tmp["SKU"] = sku
+                tmp["Consumo_total_mes"] = pd.to_numeric(tmp["Consumo_base"], errors="coerce").fillna(0.0) * uds
+                consumo_ins_rows.append(tmp)
+
+    ventas_sku_mes = pd.DataFrame(ventas_rows) if ventas_rows else pd.DataFrame(
+        columns=["Mes","Linea","SKU","Unidades","Precio","Venta_mes"])
+    consumo_ins_mes = (pd.concat(consumo_ins_rows, ignore_index=True)
+                       if consumo_ins_rows else
+                       pd.DataFrame(columns=["Mes","SKU","Insumo","Unidad_base","Consumo_total_mes"]))
+
+    # COGS y márgenes
+    df_costos = ventas_sku_mes.merge(costos_df, on="SKU", how="left")
+    df_costos["COGS_mes"] = df_costos["Unidades"] * df_costos["Costo_unit"]
+    df_costos["Margen_mes"] = df_costos["Venta_mes"] - df_costos["COGS_mes"]
+    df_costos["Margen_%"] = np.where(df_costos["Venta_mes"]>0,
+                                     df_costos["Margen_mes"]/df_costos["Venta_mes"]*100.0, np.nan)
+
+    st.markdown("### Márgenes por SKU (mensual)")
+    show_df_money(
+        df_costos.assign(
+            **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
+            **{"COGS_mes":   lambda d: d["COGS_mes"].map(clp)},
+            **{"Venta_mes":  lambda d: d["Venta_mes"].map(clp)},
+            **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
+            **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f\"{x:.1f}%\" if pd.notna(x) else \"—\")},
+        ),
+        width="stretch"
+    )
+
+    st.markdown("#### Resumen anual por SKU")
+    anual = (df_costos.groupby(["Linea","SKU"], as_index=False)
+                    .agg(Unidades_año=("Unidades","sum"),
+                         Ventas_año=("Venta_mes","sum"),
+                         COGS_año=("COGS_mes","sum")))
+    anual["Margen_año"] = anual["Ventas_año"] - anual["COGS_año"]
+    show_df_money(
+        anual.assign(
+            **{"Ventas_año": lambda d: d["Ventas_año"].map(clp)},
+            **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
+            **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
+        ),
+        width="stretch"
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
+    c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
+    c3.metric("Margen (año, SKUs PRO)",  clp(float(anual["Margen_año"].sum()) if not anual.empty else 0))
+
+    st.markdown("### Consumo de insumos (plan de compras)")
+    if consumo_ins_mes.empty:
+        st.info("Sin consumo calculado (revisa el catálogo y las bases diarias).")
+    else:
+        consumo_mes_ins = (consumo_ins_mes.groupby(["Mes","Insumo","Unidad_base"], as_index=False)
+                                           .agg(Cantidad=("Consumo_total_mes","sum")))
+        st.dataframe(consumo_mes_ins, use_container_width=True)
+
+        st.markdown("#### Total anual por insumo")
+        consumo_anual_ins = (consumo_mes_ins.groupby(["Insumo","Unidad_base"], as_index=False)
+                                              .agg(Cantidad=("Cantidad","sum"))
+                                              .sort_values("Cantidad", ascending=False))
+        st.dataframe(consumo_anual_ins, use_container_width=True)
+# ========================== FIN 02c – Planeación PRO ==========================
 
 # --- 04 COGS & OPEX ----------------------------------------------------------
 with tabs[4]:
