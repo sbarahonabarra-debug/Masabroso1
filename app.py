@@ -1214,11 +1214,11 @@ with st.sidebar.expander("🔎 Auditoría numérica", expanded=True):
     c_check = (MODEL["COGS_neto"] - (MODEL["COGS_mes_total"] - MODEL["IVA_credito_COGS"])).abs().max()
     st.write(f"- COGS_neto = COGS_bruto − IVA_crédito_COGS: **{'OK' if c_check < tol else f'FAIL (max {c_check:,.2f})'}**")
 
-# ============================ UI TABS =========================================
 tabs = st.tabs([
     "00 – Supuestos",
     "01 – CapEx & Materiales",
     "02 – Costeo SKU",
+    "02c – Planeación PRO (por SKU)",   # ← esta
     "03 – Unidades & Ventas",
     "04 – COGS & OPEX",
     "04b – IVA",
