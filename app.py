@@ -1726,18 +1726,7 @@ with tabs[3]:
     df_costos["Margen_mes"] = df_costos["Venta_mes"] - df_costos["COGS_mes"]
     df_costos["Margen_%"] = np.where(df_costos["Venta_mes"]>0,
                                      df_costos["Margen_mes"]/df_costos["Venta_mes"]*100.0, np.nan)
-
-    st.markdown("### Márgenes por SKU (mensual)")
-    show_df_money(
-        df_costos.assign(
-            **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
-            **{"COGS_mes":   lambda d: d["COGS_mes"].map(clp)},
-            **{"Venta_mes":  lambda d: d["Venta_mes"].map(clp)},
-            **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
-            **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f\"{x:.1f}%\" if pd.notna(x) else \"—\")},
-        ),
-        width="stretch"
-    )
+    
 
     st.markdown("### Márgenes por SKU (mensual)")
 show_df_money(
