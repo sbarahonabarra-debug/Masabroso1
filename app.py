@@ -1393,51 +1393,68 @@ with tabs[1]:
 
 # --- 02 Costeo SKU -----------------------------------------------------------
 with tabs[2]:
-    st.subheader("Costeo por SKU (desde COSTOS_LINEA_UNIFICADO_APP.csv)")
+    st.subheader("Costeo por SKU (oficial o desde BOM)")
 
-    if COSTOS_UNIF.empty:
-        st.warning("No se encontró 'data/COSTOS_LINEA_UNIFICADO_APP.csv'.")
+    # Fuentes disponibles
+    oficial = COSTOS_UNIF if not COSTOS_UNIF.empty else pd.DataFrame()
+    bom = BOM if not BOM.empty else pd.DataFrame()
+
+    # Columnas de referencia
+    col_prod_of = "Producto" if "Producto" in oficial.columns else None
+    col_sku_bom = next((c for c in ["SKU","sku","Producto"] if c in bom.columns), None)
+
+    # Opciones: unión de oficial + BOM (sin duplicados)
+    opciones = []
+    if col_prod_of:
+        opciones += list(oficial[col_prod_of].dropna().unique())
+    if col_sku_bom:
+        opciones += list(bom[col_sku_bom].dropna().unique())
+    # Orden sugerido, dejando lo demás al final
+    orden_pref = {
+        "PAN — Marraqueta 100g (econ)": 0,
+        "CROISSANT — 70g (econ)": 1,
+        "TROZO — Mil Hojas 1/8 (A PDF)": 2,
+        "CAFÉ — Taza estándar": 3,
+        "Concentrado Masa Madre 1 kg": 4,
+        "Pan Masa Madre 1kg": 5,
+        "Paneton Masa Madre 1kg": 6,
+    }
+    opciones = sorted(pd.unique(opciones), key=lambda x: orden_pref.get(x, 999))
+
+    if len(opciones) == 0:
+        st.warning("No hay productos ni en COSTOS_LINEA_UNIFICADO_APP.csv ni en 01_BOM.csv.")
+        st.stop()
+
+    producto_sel = st.selectbox("Producto", opciones, index=0, key="t2_prod_any")
+
+    # Preferimos detalle oficial si existe; si no, calculamos desde BOM+02_Precios
+    det = pd.DataFrame()
+    total = np.nan
+
+    if col_prod_of and producto_sel in set(oficial[col_prod_of].unique()):
+        det = oficial.loc[oficial[col_prod_of] == producto_sel].copy()
+        if "Costo_insumo_CLP" in det.columns:
+            total = float(pd.to_numeric(det["Costo_insumo_CLP"], errors="coerce").sum())
     else:
-        opciones = list(COSTOS_UNIF["Producto"].dropna().unique())
-        orden_pref = [
-            "PAN — Marraqueta 100g (econ)",
-            "CROISSANT — 70g (econ)",
-            "TROZO — Mil Hojas 1/8 (A PDF)",
-            "CAFÉ — Taza estándar",
-        ]
-        opciones = sorted(opciones, key=lambda x: (orden_pref.index(x) if x in orden_pref else 999, x))
+        det, total = costeo_insumos_por_sku(BOM, INS_PREP, producto_sel, merma_global_pct=0.0)
 
-        producto_sel = st.selectbox("Producto", opciones, index=0, key="t2_prod_oficial")
-        det = COSTOS_UNIF.loc[COSTOS_UNIF["Producto"]==producto_sel].copy()
+    metric_clp("Costo ingredientes por unidad", total if pd.notna(total) else 0)
+    st.dataframe(det, use_container_width=True)
 
-        total = float(det["Costo_insumo_CLP"].sum()) if "Costo_insumo_CLP" in det.columns else 0.0
-        st.metric("Costo ingredientes por unidad", clp(total))
-        st.dataframe(det, width="stretch")
-
-        with st.expander("Resumen por insumo (ordenado por impacto)"):
-            if "Costo_insumo_CLP" in det.columns:
-                resumen_ins = (det.groupby("Insumo", as_index=False)["Costo_insumo_CLP"]
-                                 .sum()
-                                 .sort_values("Costo_insumo_CLP", ascending=False))
-                st.dataframe(resumen_ins, width="stretch")
-            else:
-                st.info("La columna 'Costo_insumo_CLP' no está disponible en el archivo.")
-
-    st.markdown("---")
-    st.subheader("Complementarios — SKUs (desde COSTO_COMPLEMENTARIOS_SKU.csv)")
-    if COSTO_COMP.empty:
-        st.info("No se encontró 'data/COSTO_COMPLEMENTARIOS_SKU.csv'.")
-    else:
-        st.markdown("**Detalle por insumo**")
-        st.dataframe(COSTO_COMP, width="stretch")
-
-        st.markdown("**Resumen por SKU (costo insumo total)**")
-        tot_comp = (
-            COSTO_COMP.groupby("Producto", as_index=False)["Costo_insumo_CLP"]
+    with st.expander("Resumen por insumo (ordenado por impacto)"):
+        if not det.empty:
+            col_cost = next((c for c in ["Costo_insumo_CLP","Subtotal_CLP","Costo_unit_CLP"] if c in det.columns), None)
+            col_ins  = next((c for c in ["Insumo","insumo"] if c in det.columns), None)
+            if col_cost and col_ins:
+                resumen = (
+                    det.groupby(col_ins, as_index=False)[col_cost]
                       .sum()
-                      .sort_values("Costo_insumo_CLP", ascending=False)
-        )
-        st.dataframe(tot_comp, width="stretch")
+                      .sort_values(col_cost, ascending=False)
+                )
+                show_df_money(resumen, [col_cost], use_container_width=True)
+            else:
+                st.info("No se pudieron identificar las columnas de insumo/costo para agrupar.")
+
 
 # --- 03 Unidades & Ventas ----------------------------------------------------
 with tabs[3]:
