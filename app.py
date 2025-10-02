@@ -1728,7 +1728,7 @@ with tabs[3]:
                                      df_costos["Margen_mes"]/df_costos["Venta_mes"]*100.0, np.nan)
     
 
-    st.markdown("### Márgenes por SKU (mensual)")
+   st.markdown("### Márgenes por SKU (mensual)")
 show_df_money(
     df_costos.assign(
         **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
@@ -1739,10 +1739,29 @@ show_df_money(
     ),
     width="stretch"
 )
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
-    c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
-    c3.metric("Margen (año, SKUs PRO)",  clp(float(anual["Margen_año"].sum()) if not anual.empty else 0))
+
+st.markdown("#### Resumen anual por SKU")
+anual = (
+    df_costos.groupby(["Linea","SKU"], as_index=False)
+             .agg(Unidades_año=("Unidades","sum"),
+                  Ventas_año=("Venta_mes","sum"),
+                  COGS_año=("COGS_mes","sum"))
+)
+anual["Margen_año"] = anual["Ventas_año"] - anual["COGS_año"]
+show_df_money(
+    anual.assign(
+        **{"Ventas_año": lambda d: d["Ventas_año"].map(clp)},
+        **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
+        **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
+    ),
+    width="stretch"
+)
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
+c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
+c3.metric("Margen (año, SKUs PRO)",  clp(float(anual["Margen_año"].sum()) if not anual.empty else 0))
+
 
     st.markdown("### Consumo de insumos (plan de compras)")
     if consumo_ins_mes.empty:
