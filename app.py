@@ -1739,19 +1739,17 @@ with tabs[3]:
         width="stretch"
     )
 
-    st.markdown("#### Resumen anual por SKU")
-    anual = (df_costos.groupby(["Linea","SKU"], as_index=False)
-                    .agg(Unidades_año=("Unidades","sum"),
-                         Ventas_año=("Venta_mes","sum"),
-                         COGS_año=("COGS_mes","sum")))
-    anual["Margen_año"] = anual["Ventas_año"] - anual["COGS_año"]
-    show_df_money(
-        anual.assign(
-            **{"Ventas_año": lambda d: d["Ventas_año"].map(clp)},
-            **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
-            **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
-        ),
-        width="stretch"
+    st.markdown("### Márgenes por SKU (mensual)")
+show_df_money(
+    df_costos.assign(
+        **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
+        **{"COGS_mes":   lambda d: d["COGS_mes"].map(clp)},
+        **{"Venta_mes":  lambda d: d["Venta_mes"].map(clp)},
+        **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
+        **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
+    ),
+    width="stretch"
+)
     )
     c1, c2, c3 = st.columns(3)
     c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
