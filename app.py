@@ -1739,7 +1739,6 @@ show_df_money(
     ),
     width="stretch"
 )
-    )
     c1, c2, c3 = st.columns(3)
     c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
     c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
