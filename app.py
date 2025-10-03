@@ -208,7 +208,7 @@ if CAPEX_TAB.empty:
     CAPEX_TAB = read_first("03_Capex.csv")
 
 # NUEVOS: planillas OFICIALES ya unificadas
-COSTOS_UNIF  = read_first("COSTOS_LINEA_UNIFICADO_APP.csv")
+COSTOS_UNIF = read_first("COSTOS_LINEA_UNIFICADO_APP.csv")
 
 # Complementarios: si no existe el CSV listo, lo generamos desde
 # 07b_Complementarios_Detalle.csv + 02_Precios_Insumos.csv
@@ -218,22 +218,22 @@ if COSTO_COMP.empty:
     INS_RAW = read_first("02_Precios_Insumos.csv")
 
     if not DET_RAW.empty and not INS_RAW.empty:
-        # helpers locales
-        def _find(df, keys):
+        # helpers locales (evitar colisiones con funciones globales)
+        def _find_col_local(df, keys):
             keys = [k.lower() for k in keys]
             for c in df.columns:
                 if any(k in str(c).lower() for k in keys):
                     return c
             return None
 
-        def _prep_ins(df):
+        def _prep_ins_local(df):
             """De 02_Precios_Insumos arma: Insumo, Unidad_base, Precio_base, __ins_norm__"""
             df = df.copy()
-            col_ins = _find(df, ["insumo","ingrediente","producto","nombre"])
-            col_un  = _find(df, ["unidad_base","unidad_costo_base","unidad"])
-            col_pb  = _find(df, ["precio_base","precio_por_unidad","clp_base"])
-            col_pp  = _find(df, ["precio_pack","precio_pack_clp","precio_total"])
-            col_cp  = _find(df, ["contenido_pack","contenido"])
+            col_ins = _find_col_local(df, ["insumo","ingrediente","producto","nombre"])
+            col_un  = _find_col_local(df, ["unidad_base","unidad_costo_base","unidad"])
+            col_pb  = _find_col_local(df, ["precio_base","precio_por_unidad","clp_base"])
+            col_pp  = _find_col_local(df, ["precio_pack","precio_pack_clp","precio_total"])
+            col_cp  = _find_col_local(df, ["contenido_pack","contenido"])
 
             if col_ins is None:
                 df["Insumo"] = df.index.astype(str); col_ins = "Insumo"
@@ -243,21 +243,21 @@ if COSTO_COMP.empty:
             df["__ins_norm__"] = df[col_ins].map(_norm_txt)
 
             if col_pb:
-                out = df[[col_ins,col_un,col_pb,"__ins_norm__"]].rename(
+                out = df[[col_ins, col_un, col_pb, "__ins_norm__"]].rename(
                     columns={col_ins:"Insumo", col_un:"Unidad_base", col_pb:"Precio_base"}
                 )
             elif col_pp and col_cp:
-                tmp = df[[col_ins,col_un,col_pp,col_cp,"__ins_norm__"]].rename(
+                tmp = df[[col_ins, col_un, col_pp, col_cp, "__ins_norm__"]].rename(
                     columns={col_ins:"Insumo", col_un:"Unidad_base",
                              col_pp:"Precio_pack_CLP", col_cp:"Contenido_pack"}
                 )
-                tmp["Precio_base"] = tmp["Precio_pack_CLP"].map(_num) / tmp["Contenido_pack"].map(_num).replace(0,np.nan)
+                tmp["Precio_base"] = tmp["Precio_pack_CLP"].map(_num) / tmp["Contenido_pack"].map(_num).replace(0, np.nan)
                 out = tmp[["Insumo","Unidad_base","Precio_base","__ins_norm__"]]
             else:
                 cand = [c for c in df.columns if "precio" in str(c).lower()]
                 if cand:
                     df["Precio_base"] = df[cand[0]].map(_num)
-                    out = df[[col_ins,col_un,"Precio_base","__ins_norm__"]].rename(
+                    out = df[[col_ins, col_un, "Precio_base", "__ins_norm__"]].rename(
                         columns={col_ins:"Insumo", col_un:"Unidad_base"}
                     )
                 else:
@@ -266,13 +266,13 @@ if COSTO_COMP.empty:
             out["Unidad_base"] = out["Unidad_base"].map(_u)
             return out
 
-        INS_PREP_MIN = _prep_ins(INS_RAW)
+        INS_PREP_MIN = _prep_ins_local(INS_RAW)
 
-        c_prod = _find(DET_RAW, ["producto","sku","nombre"])
-        c_ins  = _find(DET_RAW, ["insumo","ingrediente"])
-        c_qty  = _find(DET_RAW, ["cantidad_por_ud","cantidad","consumo","qty"])
-        c_un   = _find(DET_RAW, ["unidad","u"])
-        c_mer  = _find(DET_RAW, ["merma","merma_pct","merma %"])
+        c_prod = _find_col_local(DET_RAW, ["producto","sku","nombre"])
+        c_ins  = _find_col_local(DET_RAW, ["insumo","ingrediente"])
+        c_qty  = _find_col_local(DET_RAW, ["cantidad_por_ud","cantidad","consumo","qty"])
+        c_un   = _find_col_local(DET_RAW, ["unidad","u"])
+        c_mer  = _find_col_local(DET_RAW, ["merma","merma_pct","merma %"])
 
         if all([c_prod, c_ins, c_qty, c_un]):
             det = DET_RAW.rename(columns={
@@ -284,18 +284,19 @@ if COSTO_COMP.empty:
 
             merged = det.merge(INS_PREP_MIN, on="__ins_norm__", how="left", suffixes=("","_INS"))
 
-            def _consumo_base(row):
+            def _consumo_base_local(row):
                 cant = _num(row["Cantidad_por_ud"]) * (1.0 + float(row["Merma_pct"])/100.0)
                 return convert_amount(cant, row["Unidad"], row["Unidad_base"], row["__ins_norm__"])
 
-            merged["Consumo_base"] = merged.apply(_consumo_base, axis=1)
-            merged["Precio_base"]  = merged["Precio_base"].map(_num)
+            merged["Consumo_base"]   = merged.apply(_consumo_base_local, axis=1)
+            merged["Precio_base"]    = merged["Precio_base"].map(_num)
             merged["Costo_insumo_CLP"] = merged["Consumo_base"].astype(float) * merged["Precio_base"].astype(float)
 
             keep = ["Producto","Insumo","Cantidad_por_ud","Unidad","Merma_pct",
                     "Unidad_base","Consumo_base","Precio_base","Costo_insumo_CLP"]
             for c in keep:
-                if c not in merged.columns: merged[c] = np.nan
+                if c not in merged.columns:
+                    merged[c] = np.nan
             COSTO_COMP = merged[keep].copy()
 
             # Guardamos
@@ -311,323 +312,11 @@ PRICE_COMP_OVERRIDE_RAW = {
     "Complementarios Queso (1 kg)": 12990.0,
     "Complementarios Mermelada (1 kg)": 9490.0,
 }
-PRICE_COMP_OVERRIDE = { _norm_txt(k): float(v) for k, v in PRICE_COMP_OVERRIDE_RAW.items() }
-# Masabroso – Dashboard Unificado (flujo centralizado reactivo)
-# -----------------------------------------------------------------------------
-import streamlit as st
-import pandas as pd
-import numpy as np
-from io import BytesIO
-from pathlib import Path
-import unicodedata
-import re
+PRICE_COMP_OVERRIDE = {_norm_txt(k): float(v) for k, v in PRICE_COMP_OVERRIDE_RAW.items()}
 
-# ============================ CONFIG =========================================
-st.set_page_config(page_title="Masabroso – Dashboard Unificado", layout="wide")
-# Soporta ejecutar streamlit desde distintos cwd (VSCode, terminal, etc.)
-DATA_DIRS = [
-    Path(__file__).resolve().parent / "data",
-    Path.cwd() / "data",
-]
-
-# Alias compatible para el resto del código y para escribir archivos
-DATA_DIR = next((p for p in DATA_DIRS if p.exists()), DATA_DIRS[0])
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
-N = 12
-PAN_PIEZAS_POR_KG = 10  # 10 piezas de 100 g = 1 kg
-
-def clp(x) -> str:
-    try:
-        return f"$ {int(round(float(x))):,}".replace(",", ".")
-    except Exception:
-        return str(x)
-
-# === Formato dinero (CLP) ===========================
-def fmt_money(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    df2 = df.copy()
-    for c in cols:
-        if c in df2.columns:
-            df2[c] = df2[c].map(clp)
-    return df2
-
-def show_df_money(df: pd.DataFrame, money_cols: list[str] | None = None, **kwargs):
-    # Si no se especifican, detecta columnas de dinero por nombre
-    if money_cols is None:
-        money_cols = [c for c in df.columns
-                      if re.search(r"(precio|venta|ventas|cogs|costo|clp|iva|o?pex|ebitda|aporte|cuota|interes|amort|saldo|caja|flujo|material|capex)", str(c), re.I)]
-    st.dataframe(fmt_money(df, money_cols), **kwargs)
-
-def metric_clp(label: str, value):
-    st.metric(label, clp(value))
-# ====================================================
-
-
-
-# ============================ HELPERS ========================================
-def _norm_txt(s: str) -> str:
-    if s is None: return ""
-    s = str(s)
-    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-    s = re.sub(r"[^0-9a-zA-ZÁÉÍÓÚáéíóúñÑ ]+", " ", s)
-    s = " ".join(s.lower().split())
-    return s
-
-def _num(x):
-    try:
-        if x is None: return np.nan
-        if isinstance(x,(int,float,np.number)): return float(x)
-        s = str(x).replace("$","").replace(".","").replace(",","").strip()
-        return float(s) if s else np.nan
-    except Exception:
-        return np.nan
-
-def read_first(fname: str, default: pd.DataFrame | None = None) -> pd.DataFrame:
-    """
-    Lector robusto para CSV en data/.
-    - Busca el archivo en varias bases (DATA_DIRS)
-    - Soporta UTF-8/UTF-8-SIG/latin1
-    - Autodetecta delimitador (incluye ';')
-    - Ignora filas problemáticas
-    - Limpia BOM en headers
-    """
-    # 1) localizar el archivo en alguna base de datos
-    p = None
-    for base in DATA_DIRS:
-        cand = base / fname
-        if cand.exists():
-            p = cand
-            break
-    if p is None:
-        return default.copy() if isinstance(default, pd.DataFrame) else pd.DataFrame()
-
-    # 2) intentos de parseo
-    tries = [
-        dict(sep=",",  encoding="utf-8"),
-        dict(sep=None, engine="python", encoding="utf-8"),      # autodetect
-        dict(sep=None, engine="python", encoding="utf-8-sig"),  # BOM
-        dict(sep=";",  engine="python", encoding="utf-8"),
-        dict(sep=";",  engine="python", encoding="utf-8-sig"),
-        dict(sep=";",  engine="python", encoding="latin1"),
-        dict(sep=",",  engine="python", encoding="latin1"),
-    ]
-
-    for kw in tries:
-        try:
-            df = pd.read_csv(p, on_bad_lines="skip", **kw)
-        except TypeError:
-            # pandas < 1.3
-            df = pd.read_csv(p, error_bad_lines=False, **kw)
-        except Exception:
-            continue
-
-        if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-            df = df.copy()
-            df.columns = [str(c).replace("\ufeff", "").strip() for c in df.columns]
-            return df
-
-    # último recurso
-    try:
-        df = pd.read_table(p, engine="python")
-        if isinstance(df, pd.DataFrame) and df.shape[1] > 0:
-            df.columns = [str(c).replace("\ufeff", "").strip() for c in df.columns]
-            return df
-    except Exception:
-        pass
-
-    return default.copy() if isinstance(default, pd.DataFrame) else pd.DataFrame()
-
-def s_factor_vec(wd, we, D, F):
-    D = np.array(D, dtype=float)
-    F = np.array(F, dtype=float)
-    H = np.maximum(D - F, 0.0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        out = (wd*H + we*F) / np.where(D>0, D, 1.0)
-    out[~np.isfinite(out)] = 1.0
-    return out.tolist()
-
-def rampa_geom(R1, R12, n=12):
-    if R1 <= 0 or R12 <= 0: return [1.0]*n
-    r = (R12/R1)**(1/(n-1))
-    return [R1*(r**i) for i in range(n)]
-
-# Unidades y densidades para conversiones (insumos)
-_UNIT_ALIASES = {
-    "g":"g","gr":"g","gramo":"g","gramos":"g",
-    "kg":"kg","kilo":"kg","kilogramo":"kg","kilogramos":"kg",
-    "ml":"ml","mililitro":"ml","mililitros":"ml",
-    "l":"l","lt":"l","litro":"l","litros":"l",
-    "u":"u","unid":"u","unidad":"u","unidades":"u"
-}
-def _u(u_raw): return _UNIT_ALIASES.get(_norm_txt(u_raw), _norm_txt(u_raw))
-
-# Densidades g/ml
-DENS = {"agua":1.00,"leche":1.03,"leche entera":1.03}
-
-def convert_amount(cant, u_from, u_to, insumo_norm=""):
-    """Convierte cantidades entre g/kg/ml/l/u. Cruces masa-volumen con densidad si aplica."""
-    if pd.isna(cant): return np.nan
-    u_from = _u(u_from); u_to = _u(u_to)
-
-    if u_from == u_to: return cant
-    # masa
-    if u_from == "g"  and u_to == "kg": return cant/1000.0
-    if u_from == "kg" and u_to == "g":  return cant*1000.0
-    # volumen
-    if u_from == "ml" and u_to == "l":  return cant/1000.0
-    if u_from == "l"  and u_to == "ml": return cant*1000.0
-    # unidad
-    if u_from == "u" and u_to == "u":   return cant
-
-    # cruces masa-volumen
-    d = None
-    for k,v in DENS.items():
-        if k in insumo_norm:
-            d = v; break
-    if d is not None:
-        if u_from == "g"  and u_to == "ml": return cant / d
-        if u_from == "ml" and u_to == "g":  return cant * d
-        if u_from == "kg" and u_to == "l":  return (cant*1000.0)/d/1000.0
-        if u_from == "l"  and u_to == "kg": return (cant*1000.0)*d/1000.0
-
-    return np.nan  # no convertible
-
-def s2df(s: pd.Series, value_name: str, index_name: str = "Mes") -> pd.DataFrame:
-    return s.rename_axis(index_name).reset_index(name=value_name)
-
-# ====================== LECTURA DATOS BASE (CSV) ==============================
-BOM         = read_first("01_BOM.csv")
-INS         = read_first("02_Precios_Insumos.csv")
-PRICES_SKU  = read_first("07_Precios_SKU.csv")
-PERUNIT     = read_first("09_PerUnit_Linea.csv", default=pd.DataFrame({
-                "Linea":["Pan","Bolleria","Pasteleria","Cafe"],
-                "Energia_gas_CLP_por_ud":[0,0,0,0],
-                "Logistica_CLP_por_ud":[0,0,0,0],
-              }))
-OPEX_BASE   = read_first("06_OPEX_OFICIAL_sin_harinas.csv")
-IVA_CFG     = read_first("11_IVA_Config.csv", default=pd.DataFrame({
-                "Linea":["Pan","Bolleria","Pasteleria","Cafe","Complementarios"],
-                "Afecta_IVA":[False,True,True,True,True],
-                "Tasa_IVA_pct":[19,19,19,19,19],
-              }))
-CAPITAL     = read_first("10_Estructura_Capital.csv", default=pd.DataFrame({
-                "Concepto":["Aporte_duenos_CLP","Capital_trabajo_inicial_CLP","Permisos_tramites_CLP"],
-                "Valor":[20000000,2000000,500000]
-              }))
-MATERIAL    = read_first("04_Materiales.csv")
-CAPEX_TAB   = read_first("06_consolidado.csv")
-if CAPEX_TAB.empty:
-    CAPEX_TAB = read_first("03_Capex.csv")
-
-# NUEVOS: planillas OFICIALES ya unificadas
-COSTOS_UNIF  = read_first("COSTOS_LINEA_UNIFICADO_APP.csv")
-
-# Complementarios: si no existe el CSV listo, lo generamos desde
-# 07b_Complementarios_Detalle.csv + 02_Precios_Insumos.csv
-COSTO_COMP = read_first("COSTO_COMPLEMENTARIOS_SKU.csv")
-if COSTO_COMP.empty:
-    DET_RAW = read_first("07b_Complementarios_Detalle.csv")
-    INS_RAW = read_first("02_Precios_Insumos.csv")
-
-    if not DET_RAW.empty and not INS_RAW.empty:
-        # helpers locales
-        def _find(df, keys):
-            keys = [k.lower() for k in keys]
-            for c in df.columns:
-                if any(k in str(c).lower() for k in keys):
-                    return c
-            return None
-
-        def _prep_ins(df):
-            """De 02_Precios_Insumos arma: Insumo, Unidad_base, Precio_base, __ins_norm__"""
-            df = df.copy()
-            col_ins = _find(df, ["insumo","ingrediente","producto","nombre"])
-            col_un  = _find(df, ["unidad_base","unidad_costo_base","unidad"])
-            col_pb  = _find(df, ["precio_base","precio_por_unidad","clp_base"])
-            col_pp  = _find(df, ["precio_pack","precio_pack_clp","precio_total"])
-            col_cp  = _find(df, ["contenido_pack","contenido"])
-
-            if col_ins is None:
-                df["Insumo"] = df.index.astype(str); col_ins = "Insumo"
-            if col_un is None:
-                df["Unidad_base"] = "kg"; col_un = "Unidad_base"
-
-            df["__ins_norm__"] = df[col_ins].map(_norm_txt)
-
-            if col_pb:
-                out = df[[col_ins,col_un,col_pb,"__ins_norm__"]].rename(
-                    columns={col_ins:"Insumo", col_un:"Unidad_base", col_pb:"Precio_base"}
-                )
-            elif col_pp and col_cp:
-                tmp = df[[col_ins,col_un,col_pp,col_cp,"__ins_norm__"]].rename(
-                    columns={col_ins:"Insumo", col_un:"Unidad_base",
-                             col_pp:"Precio_pack_CLP", col_cp:"Contenido_pack"}
-                )
-                tmp["Precio_base"] = tmp["Precio_pack_CLP"].map(_num) / tmp["Contenido_pack"].map(_num).replace(0,np.nan)
-                out = tmp[["Insumo","Unidad_base","Precio_base","__ins_norm__"]]
-            else:
-                cand = [c for c in df.columns if "precio" in str(c).lower()]
-                if cand:
-                    df["Precio_base"] = df[cand[0]].map(_num)
-                    out = df[[col_ins,col_un,"Precio_base","__ins_norm__"]].rename(
-                        columns={col_ins:"Insumo", col_un:"Unidad_base"}
-                    )
-                else:
-                    out = pd.DataFrame(columns=["Insumo","Unidad_base","Precio_base","__ins_norm__"])
-
-            out["Unidad_base"] = out["Unidad_base"].map(_u)
-            return out
-
-        INS_PREP_MIN = _prep_ins(INS_RAW)
-
-        c_prod = _find(DET_RAW, ["producto","sku","nombre"])
-        c_ins  = _find(DET_RAW, ["insumo","ingrediente"])
-        c_qty  = _find(DET_RAW, ["cantidad_por_ud","cantidad","consumo","qty"])
-        c_un   = _find(DET_RAW, ["unidad","u"])
-        c_mer  = _find(DET_RAW, ["merma","merma_pct","merma %"])
-
-        if all([c_prod, c_ins, c_qty, c_un]):
-            det = DET_RAW.rename(columns={
-                c_prod:"Producto", c_ins:"Insumo", c_qty:"Cantidad_por_ud", c_un:"Unidad"
-            })
-            det["Merma_pct"] = (DET_RAW[c_mer].map(_num) if c_mer else 0.0)
-            det["Merma_pct"] = det["Merma_pct"].fillna(0.0)
-            det["__ins_norm__"] = det["Insumo"].map(_norm_txt)
-
-            merged = det.merge(INS_PREP_MIN, on="__ins_norm__", how="left", suffixes=("","_INS"))
-
-            def _consumo_base(row):
-                cant = _num(row["Cantidad_por_ud"]) * (1.0 + float(row["Merma_pct"])/100.0)
-                return convert_amount(cant, row["Unidad"], row["Unidad_base"], row["__ins_norm__"])
-
-            merged["Consumo_base"] = merged.apply(_consumo_base, axis=1)
-            merged["Precio_base"]  = merged["Precio_base"].map(_num)
-            merged["Costo_insumo_CLP"] = merged["Consumo_base"].astype(float) * merged["Precio_base"].astype(float)
-
-            keep = ["Producto","Insumo","Cantidad_por_ud","Unidad","Merma_pct",
-                    "Unidad_base","Consumo_base","Precio_base","Costo_insumo_CLP"]
-            for c in keep:
-                if c not in merged.columns: merged[c] = np.nan
-            COSTO_COMP = merged[keep].copy()
-
-            # Guardamos
-            try:
-                COSTO_COMP.to_csv(DATA_DIR / "COSTO_COMPLEMENTARIOS_SKU.csv",
-                                  index=False, encoding="utf-8-sig")
-            except Exception:
-                pass
-
-# === Overrides de precios de VENTA para complementarios ======================
-PRICE_COMP_OVERRIDE_RAW = {
-    "Complementarios Huevo (1 unidad)": 420.0,
-    "Complementarios Queso (1 kg)": 12990.0,
-    "Complementarios Mermelada (1 kg)": 9490.0,
-}
-PRICE_COMP_OVERRIDE = { _norm_txt(k): float(v) for k, v in PRICE_COMP_OVERRIDE_RAW.items() }
 # ============================================================================ #
-
 # ============================ SIDEBAR (ESCENARIO) =============================
+
 st.sidebar.header("Escenario de Demanda")
 
 # 0) Días / estacionalidad
