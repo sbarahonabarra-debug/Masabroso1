@@ -639,7 +639,6 @@ def cunit_insumos_oficial(linea: str) -> float:
     return costo_ud
 
 def compute_model():
-    # 1) Unidades por línea
     Cap = [np.inf]*12
     def vec_units(b, Dv, Rv, Ev, Sv, Vv, Cv, Capv):
         arr = np.array(b)*np.array(Dv)*np.array(Rv)*np.array(Ev)*np.array(Sv)*np.array(Vv)*np.array(Cv)
@@ -1146,7 +1145,7 @@ with tabs[2]:
 
 
 # --- 03 Unidades & Ventas ----------------------------------------------------
-with tabs[3]:
+with tabs[4]:
     st.subheader("Unidades por línea (escenario activo)")
     st.dataframe(MODEL["U_df"], width="stretch")
 
@@ -1409,66 +1408,72 @@ with tabs[3]:
                        if consumo_ins_rows else
                        pd.DataFrame(columns=["Mes","SKU","Insumo","Unidad_base","Consumo_total_mes"]))
 
-    # COGS y márgenes
+        # COGS y márgenes
     df_costos = ventas_sku_mes.merge(costos_df, on="SKU", how="left")
     df_costos["COGS_mes"] = df_costos["Unidades"] * df_costos["Costo_unit"]
     df_costos["Margen_mes"] = df_costos["Venta_mes"] - df_costos["COGS_mes"]
-    df_costos["Margen_%"] = np.where(df_costos["Venta_mes"]>0,
-                                     df_costos["Margen_mes"]/df_costos["Venta_mes"]*100.0, np.nan)
-    
+    df_costos["Margen_%"] = np.where(
+        df_costos["Venta_mes"] > 0,
+        df_costos["Margen_mes"] / df_costos["Venta_mes"] * 100.0,
+        np.nan
+    )
 
-   st.markdown("### Márgenes por SKU (mensual)")
-show_df_money(
-    df_costos.assign(
-        **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
-        **{"COGS_mes":   lambda d: d["COGS_mes"].map(clp)},
-        **{"Venta_mes":  lambda d: d["Venta_mes"].map(clp)},
-        **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
-        **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
-    ),
-    width="stretch"
-)
+    st.markdown("### Márgenes por SKU (mensual)")
+    show_df_money(
+        df_costos.assign(
+            **{"Costo_unit": lambda d: d["Costo_unit"].map(clp)},
+            **{"COGS_mes":   lambda d: d["COGS_mes"].map(clp)},
+            **{"Venta_mes":  lambda d: d["Venta_mes"].map(clp)},
+            **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
+            **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
+        ),
+        width="stretch"
+    )
 
-st.markdown("#### Resumen anual por SKU")
-anual = (
-    df_costos.groupby(["Linea","SKU"], as_index=False)
-             .agg(Unidades_año=("Unidades","sum"),
-                  Ventas_año=("Venta_mes","sum"),
-                  COGS_año=("COGS_mes","sum"))
-)
-anual["Margen_año"] = anual["Ventas_año"] - anual["COGS_año"]
-show_df_money(
-    anual.assign(
-        **{"Ventas_año": lambda d: d["Ventas_año"].map(clp)},
-        **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
-        **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
-    ),
-    width="stretch"
-)
+    st.markdown("#### Resumen anual por SKU")
+    anual = (
+        df_costos.groupby(["Linea","SKU"], as_index=False)
+                 .agg(Unidades_año=("Unidades","sum"),
+                      Ventas_año=("Venta_mes","sum"),
+                      COGS_año=("COGS_mes","sum"))
+    )
+    anual["Margen_año"] = anual["Ventas_año"] - anual["COGS_año"]
+    show_df_money(
+        anual.assign(
+            **{"Ventas_año": lambda d: d["Ventas_año"].map(clp)},
+            **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
+            **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
+        ),
+        width="stretch"
+    )
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
-c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
-c3.metric("Margen (año, SKUs PRO)",  clp(float(anual["Margen_año"].sum()) if not anual.empty else 0))
-
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ventas (año, SKUs PRO)", clp(float(anual["Ventas_año"].sum()) if not anual.empty else 0))
+    c2.metric("COGS (año, SKUs PRO)",    clp(float(anual["COGS_año"].sum())  if not anual.empty else 0))
+    c3.metric("Margen (año, SKUs PRO)",  clp(float(anual["Margen_año"].sum()) if not anual.empty else 0))
 
     st.markdown("### Consumo de insumos (plan de compras)")
     if consumo_ins_mes.empty:
         st.info("Sin consumo calculado (revisa el catálogo y las bases diarias).")
     else:
-        consumo_mes_ins = (consumo_ins_mes.groupby(["Mes","Insumo","Unidad_base"], as_index=False)
-                                           .agg(Cantidad=("Consumo_total_mes","sum")))
+        consumo_mes_ins = (
+            consumo_ins_mes.groupby(["Mes","Insumo","Unidad_base"], as_index=False)
+                           .agg(Cantidad=("Consumo_total_mes","sum"))
+        )
         st.dataframe(consumo_mes_ins, use_container_width=True)
 
         st.markdown("#### Total anual por insumo")
-        consumo_anual_ins = (consumo_mes_ins.groupby(["Insumo","Unidad_base"], as_index=False)
-                                              .agg(Cantidad=("Cantidad","sum"))
-                                              .sort_values("Cantidad", ascending=False))
+        consumo_anual_ins = (
+            consumo_mes_ins.groupby(["Insumo","Unidad_base"], as_index=False)
+                           .agg(Cantidad=("Cantidad","sum"))
+                           .sort_values("Cantidad", ascending=False)
+        )
         st.dataframe(consumo_anual_ins, use_container_width=True)
+
 # ========================== FIN 02c – Planeación PRO ==========================
 
 # --- 04 COGS & OPEX ----------------------------------------------------------
-with tabs[4]:
+with tabs[5]:
     st.subheader("Costo unitario y margen por representante")
     rows=[]
     for lin in ["Pan (kg)","Bolleria","Pasteleria","Cafe"]:
@@ -1512,7 +1517,7 @@ with tabs[4]:
     b2.metric("OPEX neto (año)", clp(MODEL["OPEX_neto"].sum()))
 
 # --- 04b IVA ------------------------------------------------------------------
-with tabs[5]:
+with tabs[6]:
     st.subheader("IVA – Débito y Crédito")
     iva_df = pd.DataFrame({
         "Mes":MESES,
@@ -1527,7 +1532,7 @@ with tabs[5]:
     st.dataframe(iva_df, width="stretch")
 
 # --- 05 EBITDA ---------------------------------------------------------------
-with tabs[6]:
+with tabs[7]:
     st.subheader("EBITDA")
 
     # Solo métricas BRUTAS para esta vista
@@ -1558,7 +1563,7 @@ with tabs[6]:
     st.caption("EBITDA = Ventas_brutas − COGS_bruto − OPEX_bruto.")
 
 # # --- 06 Capital & Deuda ------------------------------------------------------
-with tabs[7]:
+with tabs[8]:
     st.subheader("Capital & Deuda")
     try:
         cap_map = dict(CAPITAL[["Concepto","Valor"]].values)
@@ -1742,12 +1747,12 @@ with tabs[7]:
     st.session_state["ct_inicial_equity"] = float(ct_ini)
 
 # --- 07 Caja & DSCR ----------------------------------------------------------
-with tabs[8]:
+with tabs[9]:
     st.subheader("Caja & DSCR (12 meses)")
 
     ebitda12 = MODEL["EBITDA"].values[:12].astype(float)
 
-    deuda_tab = st.session_state.get("deuda_tabla", None)
+    deuda_tab = st.session_state.get("deuda_tabla", pd.DataFrame())
     if deuda_tab is None or (isinstance(deuda_tab, pd.DataFrame) and deuda_tab.empty):
         deuda_tab = MODEL.get("deuda_tabla", pd.DataFrame())
 
