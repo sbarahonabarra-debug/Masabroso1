@@ -995,7 +995,7 @@ def render_ajuste_diario():
             sug_caf
         ]
     })
-    st.dataframe(tabla_bases, width="stretch")
+    st.dataframe(tabla_bases, use_container_width=True)
 
     ingreso_lineas_sugerido = (
         (sug_pan_piezas / PAN_PIEZAS_POR_KG) * PRECIO_PAN_KG * adj_pan
@@ -1024,10 +1024,10 @@ with tabs[0]:
         "S_pas": np.array(S_pas),
         "S_caf": np.array(S_caf),
     })
-    st.dataframe(df_sup, width="stretch")
+    st.dataframe(df_sup, use_container_width=True)
 
     st.subheader("Unidades por línea (con estos supuestos)")
-    st.dataframe(MODEL["U_df"], width="stretch")
+    st.dataframe(MODEL["U_df"], use_container_width=True)
     st.markdown("---")
     st.subheader("Precios de venta (visibles en Supuestos)")
 
@@ -1067,17 +1067,17 @@ with tabs[0]:
 # --- 01 CapEx & Materiales ---------------------------------------------------
 with tabs[1]:
     st.subheader("CapEx")
-    st.dataframe(CAPEX_TAB, width="stretch")
+    st.dataframe(CAPEX_TAB, use_container_width=True)
     st.metric("CapEx total", clp(MODEL['capex_total']))
 
     st.subheader("Materiales (one-off)")
     if not MATERIAL.empty:
-        st.dataframe(MATERIAL, width="stretch")
+        st.dataframe(MATERIAL, use_container_width=True)
         st.metric("Materiales – compra inicial", clp(MODEL['materiales_total']))
         st.metric("CapEx + Materiales (compra inicial)", clp(MODEL['capex_total'] + MODEL['materiales_total']))
 
     st.subheader("Indirectos (one-off)")
-    st.dataframe(read_first("05_Indirectos.csv"), width="stretch")
+    st.dataframe(read_first("05_Indirectos.csv"), use_container_width=True)
 
 # --- 02 Costeo SKU -----------------------------------------------------------
 with tabs[2]:
@@ -1147,11 +1147,11 @@ with tabs[2]:
 # --- 03 Unidades & Ventas ----------------------------------------------------
 with tabs[4]:
     st.subheader("Unidades por línea (escenario activo)")
-    st.dataframe(MODEL["U_df"], width="stretch")
+    st.dataframe(MODEL["U_df"], use_container_width=True)
 
     st.subheader("Ventas por línea (representantes + complementarios)")
     ventas_tbl = MODEL["sku_df"][["Mes","Linea","SKU","Unidades","Precio","Venta_mes"]].copy()
-    show_df_money(ventas_tbl, ["Precio","Venta_mes"], width="stretch")
+    show_df_money(ventas_tbl, ["Precio","Venta_mes"], use_container_width=True)
 
 
     # Totales por mes (líneas + complementarios)
@@ -1180,7 +1180,7 @@ with tabs[4]:
         "Complementarios": "Complementarios (c/IVA)",
         "Total": "Total (c/IVA)"
     }),
-    width="stretch"
+    use_container_width=True
 )
 
     # Resumen anual por producto y totales
@@ -1427,7 +1427,7 @@ with tabs[3]:
             **{"Margen_mes": lambda d: d["Margen_mes"].map(clp)},
             **{"Margen_%":   lambda d: d["Margen_%"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
         ),
-        width="stretch"
+        use_container_width=True
     )
 
     st.markdown("#### Resumen anual por SKU")
@@ -1444,7 +1444,7 @@ with tabs[3]:
             **{"COGS_año":   lambda d: d["COGS_año"].map(clp)},
             **{"Margen_año": lambda d: d["Margen_año"].map(clp)},
         ),
-        width="stretch"
+        use_container_width=True
     )
 
     c1, c2, c3 = st.columns(3)
@@ -1482,7 +1482,7 @@ with tabs[5]:
         margin = price - cu
         m_pct = (margin/price*100.0) if price>0 else 0.0
         rows.append({"Línea":lin,"Precio":clp(price),"Costo unit.":clp(cu),"Margen unit.":clp(margin),"Margen %":f"{m_pct:.1f}%"})
-    st.dataframe(pd.DataFrame(rows), width="stretch")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
     st.markdown("#### Auditoría unitario (insumos + per-unit)")
     audit_rows = []
@@ -1490,14 +1490,14 @@ with tabs[5]:
         ins = float(MODEL["cost_unit_ins"].get(lin,0.0))
         per = float(MODEL["per_unit_map"].get(lin.replace(" (kg)",""),0.0))
         audit_rows.append({"Línea": lin, "Insumos_ud": clp(ins), "PerUnit_energ/log": clp(per), "Unit_total": clp(ins+per)})
-    st.dataframe(pd.DataFrame(audit_rows), width="stretch")
+    st.dataframe(pd.DataFrame(audit_rows), use_container_width=True)
 
     st.subheader("COGS por mes (líneas + complementarios)")
     df_cogs_show = MODEL.get("COGS_detalle_full", MODEL["COGS_detalle"])
     df_cogs_show = df_cogs_show.copy()
     df_cogs_show["__Mes_ord__"] = pd.Categorical(df_cogs_show["Mes"], categories=MESES, ordered=True)
     df_cogs_show = df_cogs_show.sort_values(["__Mes_ord__", "Linea"]).drop(columns="__Mes_ord__", errors="ignore")
-    st.dataframe(df_cogs_show, width="stretch")
+    st.dataframe(df_cogs_show, use_container_width=True)
 
 
     c1,c2,c3 = st.columns(3)
@@ -1511,7 +1511,7 @@ with tabs[5]:
         "OPEX_bruto": MODEL["OPEX_mes"].values,
         "OPEX_neto": MODEL["OPEX_neto"].values
     })
-    st.dataframe(df_opex, width="stretch")
+    st.dataframe(df_opex, use_container_width=True)
     b1,b2 = st.columns(2)
     b1.metric("OPEX bruto (año)", clp(MODEL["OPEX_mes"].sum()))
     b2.metric("OPEX neto (año)", clp(MODEL["OPEX_neto"].sum()))
@@ -1529,7 +1529,7 @@ with tabs[6]:
         "IVA_pagar":MODEL["IVA_pagar"].values,
         "Ventas_netas":MODEL["ventas_netas"].values
     })
-    st.dataframe(iva_df, width="stretch")
+    st.dataframe(iva_df, use_container_width=True)
 
 # --- 05 EBITDA ---------------------------------------------------------------
 with tabs[7]:
@@ -1547,7 +1547,7 @@ with tabs[7]:
     fin["EBITDA"] = fin["Ventas_brutas"] - fin["COGS_bruto"] - fin["OPEX_bruto"]
 
     # Tabla (formateada en CLP)
-    show_df_money(fin, width="stretch")
+    show_df_money(fin, use_container_width=True)
 
     # Gráfico: orden fijo Ene→Dic y EBITDA dibujado ENCIMA
     fin["Mes"] = pd.Categorical(fin["Mes"], categories=MESES, ordered=True)
@@ -1776,7 +1776,7 @@ with tabs[9]:
             Servicio_deuda=lambda d: d["Servicio_deuda"].map(clp),
             DSCR=lambda d: d["DSCR"].map(lambda x: f"{x:.2f}" if pd.notna(x) else "—"),
         ),
-        width="stretch"
+        use_container_width=True
     )
     st.bar_chart(pd.DataFrame({"Mes": dscr_df["Mes"], "DSCR": dscr12}).set_index("Mes"))
     if np.all(np.isnan(dscr12)):
@@ -1786,8 +1786,9 @@ with tabs[9]:
         st.metric("DSCR mínimo 12m", f"{np.nanmin(dscr12):.2f}")
 
 # --- 08 Descargas ------------------------------------------------------------
-with tabs[9]:
+with tabs[10]:  # si no aplicaste el ajuste #1 aún, usa el índice donde lo tengas
     st.subheader("Descargar salidas")
+
     dfs = {
         "Unidades": MODEL["U_df"],
         "Ventas_lineas": MODEL["sku_df"],
@@ -1813,15 +1814,29 @@ with tabs[9]:
     if not st.session_state.get("deuda_tabla", pd.DataFrame()).empty:
         dfs["Amortizacion"] = st.session_state["deuda_tabla"]
 
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
-        for k, df in dfs.items():
-            df.to_excel(w, sheet_name=k[:31], index=False)
-    bio.seek(0)
-    st.download_button("Descargar Excel", data=bio.getvalue(), file_name="masabroso_modelo.xlsx")
+    # --- helper con fallback de engine ---
+    def _excel_bytes(dfs: dict) -> bytes:
+        from io import BytesIO
+        bio = BytesIO()
+        try:
+            # intento 1: xlsxwriter
+            with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
+                for k, df in dfs.items():
+                    df.to_excel(w, sheet_name=str(k)[:31], index=False)
+        except Exception:
+            # intento 2: openpyxl
+            bio = BytesIO()  # reset del buffer
+            with pd.ExcelWriter(bio, engine="openpyxl") as w:
+                for k, df in dfs.items():
+                    df.to_excel(w, sheet_name=str(k)[:31], index=False)
+        bio.seek(0)
+        return bio.getvalue()
+
+    xls_bytes = _excel_bytes(dfs)
+    st.download_button("Descargar Excel", data=xls_bytes, file_name="masabroso_modelo.xlsx")
 
 # --- 09 Márgenes & Competencia ----------------------------------------------
-with tabs[10]:
+with tabs[11]:
     st.subheader("Márgenes unitarios y markup por línea")
 
     lineas = ["Pan (kg)", "Bolleria", "Pasteleria", "Cafe"]
@@ -1851,7 +1866,7 @@ with tabs[10]:
             **{"Margen %": lambda d: d["Margen %"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
             **{"Markup % (sobre costo)": lambda d: d["Markup % (sobre costo)"].map(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")},
         ),
-        width="stretch"
+        use_container_width=True
     )
 
     st.markdown("---")
@@ -1889,7 +1904,7 @@ with tabs[10]:
             **{"Precio máx": lambda d: d["Precio máx"].map(clp)},
             **{"Punto medio": lambda d: d["Punto medio"].map(clp)},
         ),
-        width="stretch"
+        use_container_width=True
     )
 
     if match_seg:
@@ -1911,7 +1926,7 @@ with tabs[10]:
             "- Los rangos de mercado son de referencia local para Barrio Italia."
         )
 # --- 11 – VAN & TIR ----------------------------------------------------------
-with tabs[11]:
+with tabs[12]:
     st.subheader("VAN & TIR (flujo a equity, mensual)")
 
     # ======= Parámetros =========
@@ -2008,7 +2023,7 @@ with tabs[11]:
         "Mes":   [0] + list(range(1, h+1)),
         "Flujo": cfs
     })
-    show_df_money(df_cf.rename(columns={"Flujo": "CLP"}), width="stretch")
+    show_df_money(df_cf.rename(columns={"Flujo": "CLP"}), use_container_width=True)
 
     # Acumulado y Payback simple
     df_cf["Acumulado"] = df_cf["Flujo"].cumsum()
