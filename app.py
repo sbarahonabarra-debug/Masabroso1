@@ -755,22 +755,16 @@ def compute_model():
     for (mes, linea), g in sku_df.groupby(["Mes","Linea"]):
         lin_key_per = linea.replace(" (kg)","")
         cu = float(cunit_ins.get(linea, 0.0)) + float(per_unit_map.get(lin_key_per, 0.0))
-        uds = float(g["Unidades"].sum())  # evitar truncar pan (kg) si es float
+        uds = float(g["Unidades"].sum())
         det_rows.append({"Linea": linea, "Mes": mes, "Unidades": uds, "Costo_unit_CLP": cu, "COGS": cu * uds})
     cogs_detalle = pd.DataFrame(det_rows)
 
     cogs_mes_sin_compl = cogs_detalle.groupby("Mes")["COGS"].sum().reindex(MESES).fillna(0.0) if not cogs_detalle.empty else pd.Series(0.0, index=MESES)
     cogs_mes_total = cogs_mes_sin_compl + cogs_compl_mes
 
-        # 6b) Detalle complementarios (agregado por mes)
+    # 6b) Detalle complementarios (agregado por mes)
     compl_rows = [
-        {
-            "Linea": "Complementarios",
-            "Mes": mes,
-            "Unidades": np.nan,          # no hay unidades homogéneas entre SKUs
-            "Costo_unit_CLP": np.nan,    # no aplica: mezcla de SKUs
-            "COGS": float(cogs_compl_mes.loc[mes])
-        }
+        {"Linea": "Complementarios","Mes": mes,"Unidades": np.nan,"Costo_unit_CLP": np.nan,"COGS": float(cogs_compl_mes.loc[mes])}
         for mes in MESES
     ]
     cogs_detalle_full = pd.concat([cogs_detalle, pd.DataFrame(compl_rows)], ignore_index=True)
@@ -793,13 +787,24 @@ def compute_model():
 
     opex_tpv = ventas_brutas * tpv_pct
     opex_mkt = ventas_brutas * mkt_pct
-
-    # OPEX BRUTO
     OPEX_mes = opex_fijo + opex_tpv + opex_mkt
 
     # 9) IVA (débito por líneas afectas; complementarios según IVA_CFG)
-    afecta_map = dict(zip(IVA_CFG.get("Linea",[]), IVA_CFG.get("Afecta_IVA",[])))
-    tasa_map   = dict(zip(IVA_CFG.get("Linea",[]), IVA_CFG.get("Tasa_IVA_pct",[])))
+    # ---- NORMALIZACIÓN ROBUSTA DE IVA_CFG ----
+    def _to_bool_any(x):
+        s = str(x).strip().lower()
+        return s in ("true","1","si","sí","yes","y","afecto","afecta","v","t")
+
+    def _to_float_any(x, default=None):
+        v = _num(x)
+        return float(v) if pd.notna(v) and np.isfinite(v) else (float(default) if default is not None else np.nan)
+
+    lineas_cfg = list(IVA_CFG.get("Linea", []))
+    afecta_series = pd.Series(list(IVA_CFG.get("Afecta_IVA", []))).map(_to_bool_any) if "Afecta_IVA" in IVA_CFG.columns else pd.Series([False]*len(lineas_cfg))
+    tasa_series   = pd.Series(list(IVA_CFG.get("Tasa_IVA_pct", []))).map(lambda x: _to_float_any(x, 19.0)) if "Tasa_IVA_pct" in IVA_CFG.columns else pd.Series([19.0]*len(lineas_cfg))
+
+    afecta_map = dict(zip(lineas_cfg, afecta_series))
+    tasa_map   = dict(zip(lineas_cfg, tasa_series))
 
     ventas_linea = sku_df.groupby(["Mes","Linea"])["Venta_mes"].sum().unstack(fill_value=0.0).reindex(MESES).fillna(0.0) if not sku_df.empty else pd.DataFrame(0.0, index=MESES, columns=["Pan (kg)","Bolleria","Pasteleria","Cafe"])
     ventas_linea["Complementarios"] = ventas_compl_mes
@@ -809,9 +814,9 @@ def compute_model():
     for lin in ventas_linea.columns:
         v = ventas_linea[lin]
         lin_map = "Pan" if lin.startswith("Pan") else lin
-        if afecta_map.get(lin_map, False):
-            tasa = (tasa_map.get(lin_map, 19) or 19)/100.0
-            net = v / (1.0 + tasa)
+        if bool(afecta_map.get(lin_map, False)):
+            tasa = float(tasa_map.get(lin_map, 19.0)) / 100.0
+            net = v / (1.0 + tasa) if (1.0 + tasa) != 0 else v
             iva_debito += (v - net)
             ventas_netas += net
         else:
@@ -829,12 +834,10 @@ def compute_model():
     # OPEX / COGS netos de IVA
     OPEX_neto = OPEX_mes - iva_credito_opex
     COGS_neto = cogs_mes_total - iva_credito_cogs
-
     iva_pagar = iva_debito - iva_credito_total
 
-    # ahora (bruto): ventas_brutas - COGS_mes_total - OPEX_mes
+    # EBITDA (bruto)
     EBITDA = ventas_brutas - cogs_mes_total - OPEX_mes
-
 
     # 11) Capex & Materiales
     if not CAPEX_TAB.empty and {"Cantidad","Precio_unit_CLP"}.issubset(CAPEX_TAB.columns):
@@ -861,7 +864,7 @@ def compute_model():
         ventas_linea=ventas_linea,
 
         COGS_detalle=cogs_detalle,
-        COGS_detalle_full=cogs_detalle_full,   # ← incluye complementarios
+        COGS_detalle_full=cogs_detalle_full,
         COGS_mes_sin_compl=cogs_mes_sin_compl,
         COGS_compl_mes=cogs_compl_mes,
         COGS_mes_total=cogs_mes_total,
@@ -881,6 +884,7 @@ def compute_model():
         capex_total=float(capex_total),
         materiales_total=float(mat_total),
     )
+
 
 
     
@@ -1570,34 +1574,39 @@ with tabs[8]:
     except Exception:
         cap_map = {}
 
+    # Helper robusto: castea a int con default si viene vacío o inválido
+    def _int_safe(x, default=0):
+        v = _num(x)
+        return int(v) if pd.notna(v) and np.isfinite(v) else int(default)
+
     # === Inputs en el cuerpo (no sidebar) ====================================
     c1, c2, c3 = st.columns(3)
     with c1:
         aporte_base = st.number_input(
             "Aporte dueños", 0, 500_000_000,
-            int(_num(cap_map.get("Aporte_duenos_CLP", 20_000_000))),
+            _int_safe(cap_map.get("Aporte_duenos_CLP"), 20_000_000),
             500_000, key="cd_aporte_duenos"
         )
         ct_ini = st.number_input(
             "CT inicial", 0, 200_000_000,
-            int(_num(cap_map.get("Capital_trabajo_inicial_CLP", 2_000_000))),
+            _int_safe(cap_map.get("Capital_trabajo_inicial_CLP"), 2_000_000),
             100_000, key="cd_ct_inicial"
         )
     with c2:
         permisos = st.number_input(
             "Permisos", 0, 50_000_000,
-            int(_num(cap_map.get("Permisos_tramites_CLP", 500_000))),
+            _int_safe(cap_map.get("Permisos_tramites_CLP"), 500_000),
             50_000, key="cd_permisos"
         )
         garantia = st.number_input(
             "Garantía arriendo", 0, 200_000_000,
-            int(_num(cap_map.get("Garantia_arriendo_CLP", 5_000_000))),
+            _int_safe(cap_map.get("Garantia_arriendo_CLP"), 5_000_000),
             100_000, key="cd_garantia_arriendo"
         )
     with c3:
         remodel = st.number_input(
             "Remodelación", 0, 300_000_000,
-            int(_num(cap_map.get("Remodelacion_CLP", 5_000_000))),
+            _int_safe(cap_map.get("Remodelacion_CLP"), 5_000_000),
             100_000, key="cd_remodelacion"
         )
 
@@ -1745,6 +1754,7 @@ with tabs[8]:
     st.session_state["aportes_mes_12"] = aportes_mes
     st.session_state["aporte_inicial_equity"] = aporte_equity
     st.session_state["ct_inicial_equity"] = float(ct_ini)
+
 
 # --- 07 Caja & DSCR ----------------------------------------------------------
 with tabs[9]:
@@ -1942,6 +1952,7 @@ with tabs[12]:
 
     # ======= Series base (primeros 'h' meses) =========
     h = int(horizonte)
+    km = (1.0 + ke_anual/100.0) ** (1.0/12.0) - 1.0  # tasa mensual
 
     ebitda_m = MODEL["EBITDA"].values[:h].astype(float)
     iva_p_m  = MODEL["IVA_pagar"].values[:h].astype(float)
@@ -1956,90 +1967,93 @@ with tabs[12]:
     base_cf_m = ebitda_m - iva_p_m - servicio_m
 
     # ======= Ajuste por Capital de Trabajo (ΔWC) =======
-    wc_adj = np.zeros(h, dtype=float)
     if usar_ct:
         ventas = MODEL["ventas_netas"].values[:h].astype(float)
-        if "COGS_neto" in MODEL:
-            cogs = MODEL["COGS_neto"].values[:h].astype(float)
-        else:
-            cogs = MODEL["COGS_mes_total"].values[:h].astype(float)
+        cogs_neto = (
+            MODEL["COGS_neto"].values[:h].astype(float)
+            if "COGS_neto" in MODEL
+            else MODEL["COGS_mes_total"].values[:h].astype(float)
+        )
 
         # Saldos estimados de AR, Inventario y AP (mes a mes)
-        ar  = ventas * (float(dso)/30.0)
-        inv = cogs   * (float(dio)/30.0)
-        ap  = cogs   * (float(dpo)/30.0)
+        AR  = ventas    * (dso/30.0)
+        INV = cogs_neto * (dio/30.0)
+        AP  = cogs_neto * (dpo/30.0)
+        WC  = AR + INV - AP
 
-        wc = ar + inv - ap                           # Working Capital
-        wc_prev = np.r_[0.0, wc[:-1]]               # saldo del mes anterior
-        delta_wc = wc - wc_prev                      # variación mensual
-        wc_adj = -delta_wc                           # impacto caja: −ΔWC
-
-    # Flujo a equity mensual (operación + CT)
-    cf_equity_m = base_cf_m + wc_adj
-
-    # Aporte inicial de dueños (flujo 0 negativo)
-    aporte_ini = float(st.session_state.get("cd_aporte_duenos", 0) or 0)
-    cf0 = -aporte_ini
-
-    # Vector de flujos: t=0..h
-    cfs = np.r_[cf0, cf_equity_m[:h]]
-
-    # ======= VAN y TIR (mensual y anualizada) =======
-    ke_m = (1.0 + float(ke_anual)/100.0)**(1/12) - 1.0
-
-    # VAN mensual (incluye t=0)
-    descuentos = (1.0 + ke_m)**np.arange(0, len(cfs))
-    van = float(np.sum(cfs / descuentos))
-
-    # IRR mensual por bisección (robusto, sin dependencias extra)
-    def _npv(rate, flows):
-        return np.sum(flows / (1.0 + rate)**np.arange(len(flows)))
-
-    def irr_bisection(flows, low=-0.9999, high=10.0, tol=1e-7, maxiter=200):
-        f_low = _npv(low, flows); f_high = _npv(high, flows)
-        if np.sign(f_low) == np.sign(f_high):
-            return np.nan
-        for _ in range(maxiter):
-            mid = (low + high) / 2.0
-            f_mid = _npv(mid, flows)
-            if abs(f_mid) < tol:
-                return mid
-            if np.sign(f_mid) == np.sign(f_low):
-                low = mid; f_low = f_mid
-            else:
-                high = mid
-        return mid
-
-    tir_m = irr_bisection(cfs)
-    tir_a = (1.0 + tir_m)**12 - 1.0 if np.isfinite(tir_m) else np.nan
-
-    # ======= Métricas y tabla =========
-    mA, mB = st.columns(2)
-    mA.metric("VAN (a equity)", clp(van))
-    mB.metric("TIR anual (a equity)", f"{tir_a*100:.2f}%" if pd.notna(tir_a) else "—")
-
-    st.markdown("**Flujos a equity (CLP/mes)**")
-    df_cf = pd.DataFrame({
-        "Mes":   [0] + list(range(1, h+1)),
-        "Flujo": cfs
-    })
-    show_df_money(df_cf.rename(columns={"Flujo": "CLP"}), use_container_width=True)
-
-    # Acumulado y Payback simple
-    df_cf["Acumulado"] = df_cf["Flujo"].cumsum()
-    payback_mes = next((i for i, v in enumerate(df_cf["Acumulado"]) if v >= 0), None)
-
-    c1, c2 = st.columns(2)
-    if payback_mes is None:
-        c1.metric("Payback simple", "No se alcanza en el horizonte")
+        # ΔWC_t = WC_t − WC_{t−1}, con WC_{0}=0
+        dWC = np.diff(np.concatenate([[0.0], WC]))
     else:
-        c1.metric("Payback simple", f"{payback_mes} meses")
+        dWC = np.zeros(h, dtype=float)
 
-    # Gráfico
-    st.line_chart(df_cf.set_index("Mes")[["Flujo", "Acumulado"]], use_container_width=True)
+    # Aportes/retiradas de equity (si configuraste en la pestaña de deuda)
+    aportes_mes = st.session_state.get("aportes_mes_12", np.zeros(12, dtype=float))[:h]
+    aporte_inicial_equity = float(st.session_state.get("aporte_inicial_equity", 0.0))
+    ct_inicial_equity     = float(st.session_state.get("ct_inicial_equity", 0.0))
 
-    st.caption(
-        "Definiciones: Flujo a equity = EBITDA − IVA_pagar − Servicio_deuda "
-        "+/− impacto de capital de trabajo (−ΔWC). VAN descontado a tasa mensual derivada de Ke anual. "
-        "TIR anual = (1+TIR_mensual)^12 − 1."
+    # Flujo a equity mensual (positivo = entra a la caja del equity)
+    cf_m = base_cf_m - dWC - aportes_mes  # los aportes son dinero puesto por el equity → restan al flujo
+
+    # Serie completa de flujos incluyendo el t=0
+    flujos = np.concatenate([[-(aporte_inicial_equity + ct_inicial_equity)], cf_m.astype(float)])
+
+    # VAN (VPN) con tasa mensual km
+    descuentos = np.array([(1.0 + km) ** t for t in range(len(flujos))], dtype=float)
+    VAN = float(np.sum(flujos / descuentos))
+
+    # TIR (mensual) + anualizada
+    def _irr(cashflows: np.ndarray) -> float:
+        try:
+            import numpy_financial as npf  # si está disponible, úsalo
+            return float(npf.irr(cashflows))
+        except Exception:
+            # Newton-Raphson simple como fallback
+            r = 0.1
+            for _ in range(100):
+                denom = np.array([(1+r)**t for t in range(len(cashflows))], dtype=float)
+                f  = float(np.sum(cashflows/denom))
+                df = 0.0
+                for t in range(1, len(cashflows)):
+                    df += -t * cashflows[t] / ((1+r) ** (t+1))
+                if abs(df) < 1e-12:
+                    break
+                r2 = r - f/df
+                if not np.isfinite(r2):
+                    break
+                if abs(r2 - r) < 1e-8:
+                    r = r2
+                    break
+                r = r2
+            return float(r)
+
+    TIR_m = _irr(flujos)
+    TIR_a = (1.0 + TIR_m) ** 12 - 1.0 if np.isfinite(TIR_m) else np.nan
+
+    # Tabla de soporte
+    df_van = pd.DataFrame({
+        "Mes": ["t=0"] + list(range(1, h+1)),
+        "Flujo_equity": flujos,
+        "Factor_descuento": descuentos,
+        "Flujo_descuento": flujos / descuentos
+    })
+
+    st.markdown("### Flujos a equity (mensual)")
+    show_df_money(
+        df_van.assign(
+            Flujo_equity=lambda d: d["Flujo_equity"].map(clp),
+            Flujo_descuento=lambda d: d["Flujo_descuento"].map(clp),
+        ),
+        money_cols=["Flujo_equity", "Flujo_descuento"],
+        use_container_width=True
     )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("VAN (mes 0…h)", clp(VAN))
+    c2.metric("TIR mensual", f"{(TIR_m*100.0):.2f}%" if np.isfinite(TIR_m) else "—")
+    c3.metric("TIR anualizada", f"{(TIR_a*100.0):.2f}%" if np.isfinite(TIR_a) else "—")
+
+    with st.expander("Detalle de supuestos usados"):
+        st.write(f"- Horizonte: **{h}** meses")
+        st.write(f"- Ke anual: **{ke_anual:.2f}%** → tasa mensual **{km*100:.3f}%**")
+        st.write(f"- DSO/DIO/DPO: **{dso}/{dio}/{dpo}** días (usar CT: **{usar_ct}**)")
+
