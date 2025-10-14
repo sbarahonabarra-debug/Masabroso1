@@ -712,7 +712,7 @@ def compute_model():
         "Cafe": U_caf
     })
     U_df["Total"] = U_df[["Pan (kg)","Bolleria","Pasteleria","Cafe"]].sum(axis=1)
-    U_df_base = U_df.copy()
+    pro_units = pd.DataFrame()
 
     # --- PRO SKUs GLOBAL (opcional) -----------------------------------------
     sku_pro_df = pd.DataFrame()
@@ -740,11 +740,16 @@ def compute_model():
         sku_pro_df = pd.DataFrame(rows)
 
         if not sku_pro_df.empty:
-            add_units = sku_pro_df.groupby(["Mes","Linea"])["Unidades"].sum().unstack(fill_value=0.0)
-            add_units = add_units.reindex(U_df["Mes"]).fillna(0.0)
+            add_units = (
+                sku_pro_df.groupby(["Mes","Linea"])["Unidades"].sum().unstack(fill_value=0.0)
+            )
+            index_order = U_df["Mes"].tolist()
+            add_units = add_units.reindex(index_order).fillna(0.0)
+            pro_units = add_units.copy()
             for col in add_units.columns:
                 if col in U_df.columns:
-                    U_df[col] = (U_df[col].astype(float) + add_units[col].values).round(0)
+                    aligned = add_units[col].values
+                    U_df[col] = (U_df[col].astype(float) + aligned).round(0).astype(int)
             U_df["Total"] = U_df[["Pan (kg)","Bolleria","Pasteleria","Cafe"]].sum(axis=1)
 
     # 2) Costos unitarios de insumos (preferencia: planilla OFICIAL; fallback: BOM)
@@ -805,24 +810,61 @@ def compute_model():
     # 4) Precios de venta (1 representante por línea)
     PRICE = {"Pan (kg)":2200.0, "Bolleria":1200.0, "Pasteleria":3500.0, "Cafe":2500.0}
 
-    # 5) Ventas por línea (representantes + PRO)
-    rows=[]
+    # 5) Ventas por línea (representantes)
+    rows = []
     for i, mes in enumerate(MESES):
-        rows.append({"Mes": mes,"Linea":"Pan (kg)","SKU":"Pan (kg)",
-                     "Unidades": float(U_df_base.loc[i,"Pan (kg)"]), "Precio": PRICE["Pan (kg)"]})
-        rows.append({"Mes": mes,"Linea":"Bolleria","SKU":"Croissant",
-                     "Unidades": float(U_df_base.loc[i,"Bolleria"]), "Precio": PRICE["Bolleria"]})
-        rows.append({"Mes": mes,"Linea":"Pasteleria","SKU":"Trozo Pastel",
-                     "Unidades": float(U_df_base.loc[i,"Pasteleria"]), "Precio": PRICE["Pasteleria"]})
-        rows.append({"Mes": mes,"Linea":"Cafe","SKU":"Cafe",
-                     "Unidades": float(U_df_base.loc[i,"Cafe"]), "Precio": PRICE["Cafe"]})
+        def _u_rep(col: str) -> float:
+            base_val = float(U_df.loc[i, col])
+            if (
+                isinstance(pro_units, pd.DataFrame)
+                and not pro_units.empty
+                and col in pro_units.columns
+                and mes in pro_units.index
+            ):
+                return max(base_val - float(pro_units.loc[mes, col]), 0.0)
+            return base_val
+
+        pan_rep = _u_rep("Pan (kg)")
+        bol_rep = _u_rep("Bolleria")
+        pas_rep = _u_rep("Pasteleria")
+        caf_rep = _u_rep("Cafe")
+
+        rows.append({
+            "Mes": mes,
+            "Linea": "Pan (kg)",
+            "SKU": "Pan (kg)",
+            "Unidades": pan_rep,
+            "Precio": PRICE["Pan (kg)"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Bolleria",
+            "SKU": "Croissant",
+            "Unidades": bol_rep,
+            "Precio": PRICE["Bolleria"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Pasteleria",
+            "SKU": "Trozo Pastel",
+            "Unidades": pas_rep,
+            "Precio": PRICE["Pasteleria"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Cafe",
+            "SKU": "Cafe",
+            "Unidades": caf_rep,
+            "Precio": PRICE["Cafe"]
+        })
+
     sku_df = pd.DataFrame(rows)
 
     if not sku_pro_df.empty:
         sku_df = pd.concat([sku_df, sku_pro_df], ignore_index=True)
 
     if not sku_df.empty:
-        sku_df["Venta_mes"] = sku_df["Unidades"]*sku_df["Precio"]
+        sku_df["Venta_mes"] = sku_df["Unidades"] * sku_df["Precio"]
 
     # Complementarios: ventas y COGS por mes desde overrides (con opción estacional)
     ov_v = st.session_state.get("comp_ventas_dia_override", None)
@@ -853,8 +895,13 @@ def compute_model():
     cogs_mes_total = cogs_mes_sin_compl + cogs_compl_mes
 
     compl_rows = [
-        {"Linea": "Complementarios","Mes": mes,"Unidades": np.nan,
-         "Costo_unit_CLP": np.nan,"COGS": float(cogs_compl_mes.loc[mes])}
+        {
+            "Linea": "Complementarios",
+            "Mes": mes,
+            "Unidades": np.nan,
+            "Costo_unit_CLP": np.nan,
+            "COGS": float(cogs_compl_mes.loc[mes])
+        }
         for mes in MESES
     ]
     cogs_detalle_full = pd.concat([cogs_detalle, pd.DataFrame(compl_rows)], ignore_index=True)
