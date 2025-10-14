@@ -450,17 +450,37 @@ fabricar_conc = st.sidebar.checkbox(
 st.sidebar.caption("Los precios y bases diarias de cada SKU se pueden ajustar en la pestaña PRO o aquí si se agregan inputs.")
 
 with st.sidebar.expander("Ajustes rápidos PRO (precio y base/día)", expanded=False):
+
+    # Función de sincronización canónica (tab <-> sidebar)
+    def _sync_from_sidebar(i: int):
+        st.session_state[f"pro_p_{i}"] = int(st.session_state.get(f"sb_pro_p_{i}", 0))
+        st.session_state[f"pro_b_{i}"] = int(st.session_state.get(f"sb_pro_b_{i}", 0))
+
     for i, item in enumerate(PRO_SKUS):
+        sku = item["SKU"]
+        # Inicializa las keys del SIDEBAR desde las canónicas (solo primera vez)
+        if f"sb_pro_p_{i}" not in st.session_state:
+            st.session_state[f"sb_pro_p_{i}"] = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+        if f"sb_pro_b_{i}" not in st.session_state:
+            st.session_state[f"sb_pro_b_{i}"] = int(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+
+        st.caption(f"**{sku}**")
+
         st.number_input(
-            f"Precio – {item['SKU']}", 0, 50_000,
-            int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"])),
-            step=100, key=f"pro_p_{i}"
+            f"Precio – {sku}",
+            min_value=0, max_value=50_000, step=100,
+            key=f"sb_pro_p_{i}",
+            on_change=lambda i=i: _sync_from_sidebar(i),
         )
         st.number_input(
-            f"Base/día – {item['SKU']}", 0, 10_000,
-            int(st.session_state.get(f"pro_b_{i}", item["base_dia"])),
-            step=1, key=f"pro_b_{i}"
+            f"Base/día – {sku}",
+            min_value=0, max_value=10_000, step=1,
+            key=f"sb_pro_b_{i}",
+            on_change=lambda i=i: _sync_from_sidebar(i),
         )
+
+        # Garantiza sincronización también en cada rerun (por si no saltó on_change)
+        _sync_from_sidebar(i)
 
 # === Complementarios (simple: suma directa por SKU) ==========================
 st.sidebar.header("Complementarios")
