@@ -183,6 +183,31 @@ def convert_amount(cant, u_from, u_to, insumo_norm=""):
 def s2df(s: pd.Series, value_name: str, index_name: str = "Mes") -> pd.DataFrame:
     return s.rename_axis(index_name).reset_index(name=value_name)
 
+# ============================ 02c – helpers PRO ==============================
+PRO_SKUS = [
+    {"Linea": "Pan (kg)", "SKU": "Pan Masa Madre 1kg",     "precio_sugerido": 3500, "base_dia": 40},
+    {"Linea": "Pan (kg)", "SKU": "Paneton Masa Madre 1kg", "precio_sugerido": 5000, "base_dia": 15},
+]
+
+_NESTED_INS = _norm_txt("Masa madre (concentrado)")
+_NESTED_SKU = "Concentrado Masa Madre 1kg"
+
+def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
+    det, c = costeo_insumos_por_sku(BOM, INS_PREP, sku_name, merma_global_pct=0.0)
+    if det.empty:
+        return det, float(c)
+    if fabricar_concentrado and "__ins_norm__" in det.columns and det["__ins_norm__"].notna().any():
+        mask = det["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
+        if mask.any():
+            det_nested, c_nested = costeo_insumos_por_sku(BOM, INS_PREP, _NESTED_SKU, merma_global_pct=0.0)
+            det = det.copy()
+            det.loc[mask, "Precio_base"] = float(c_nested)
+            det["Consumo_base"] = pd.to_numeric(det.get("Consumo_base"), errors="coerce")
+            det["Precio_base"]  = pd.to_numeric(det.get("Precio_base"),  errors="coerce")
+            det["Subtotal_CLP"] = (det["Consumo_base"] * det["Precio_base"]).fillna(0.0)
+            c = float(det["Subtotal_CLP"].sum())
+    return det, float(c)
+
 # ====================== LECTURA DATOS BASE (CSV) ==============================
 BOM         = read_first("01_BOM.csv")
 INS         = read_first("02_Precios_Insumos.csv")
@@ -413,6 +438,58 @@ base_caf = c[3].number_input("Café (tazas/día)",     0, 10000,  35,  5, key="s
 # Opciones de comportamiento
 redondear_pan_kg = st.sidebar.checkbox("Redondear Pan (kg) a entero", True, key="sd_round_pan_kg")
 comp_seasonal    = st.sidebar.checkbox("Complementarios siguen estacionalidad/mix promedio", False, key="sd_comp_seasonal")
+
+# === SKUs por producto (PRO) en el modelo global ===
+st.sidebar.header("SKUs por producto (PRO)")
+use_pro_global = st.sidebar.checkbox(
+    "Incluir SKUs PRO en TODO el modelo", True, key="pro_use_global"
+)
+fabricar_conc = st.sidebar.checkbox(
+    "Fabricar Concentrado in-house", True, key="pro_fabricar_conc"
+)
+st.sidebar.caption("Los precios y bases diarias de cada SKU se pueden ajustar en la pestaña PRO o aquí si se agregan inputs.")
+
+with st.sidebar.expander("Ajustes rápidos PRO (precio y base/día)", expanded=False):
+
+    # Función de sincronización canónica (tab <-> sidebar)
+    def _sync_from_sidebar(i: int):
+        p_key = f"sb_pro_p_{i}"
+        b_key = f"sb_pro_b_{i}"
+        if p_key in st.session_state:
+            st.session_state[f"pro_p_{i}"] = int(st.session_state[p_key])
+        if b_key in st.session_state:
+            st.session_state[f"pro_b_{i}"] = int(st.session_state[b_key])
+
+    for i, item in enumerate(PRO_SKUS):
+        sku = item["SKU"]
+        canon_p = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+        canon_b = int(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+
+        sb_p_key = f"sb_pro_p_{i}"
+        sb_b_key = f"sb_pro_b_{i}"
+
+        if sb_p_key not in st.session_state or int(st.session_state[sb_p_key]) != canon_p:
+            st.session_state[sb_p_key] = canon_p
+        if sb_b_key not in st.session_state or int(st.session_state[sb_b_key]) != canon_b:
+            st.session_state[sb_b_key] = canon_b
+
+        st.caption(f"**{sku}**")
+
+        st.number_input(
+            f"Precio – {sku}",
+            min_value=0, max_value=50_000, step=100,
+            key=sb_p_key,
+            on_change=lambda i=i: _sync_from_sidebar(i),
+        )
+        st.number_input(
+            f"Base/día – {sku}",
+            min_value=0, max_value=10_000, step=1,
+            key=sb_b_key,
+            on_change=lambda i=i: _sync_from_sidebar(i),
+        )
+
+        # Garantiza sincronización también en cada rerun (por si no saltó on_change)
+        _sync_from_sidebar(i)
 
 # === Complementarios (simple: suma directa por SKU) ==========================
 st.sidebar.header("Complementarios")
@@ -664,6 +741,45 @@ def compute_model():
         "Cafe": U_caf
     })
     U_df["Total"] = U_df[["Pan (kg)","Bolleria","Pasteleria","Cafe"]].sum(axis=1)
+    pro_units = pd.DataFrame()
+
+    # --- PRO SKUs GLOBAL (opcional) -----------------------------------------
+    sku_pro_df = pd.DataFrame()
+    if st.session_state.get("pro_use_global", True):
+        cfg_rows = []
+        for i, item in enumerate(PRO_SKUS):
+            p = float(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+            b = int(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+            cfg_rows.append({"Linea": item["Linea"], "SKU": item["SKU"], "Precio": p, "Base_dia": b})
+        pro_cfg = pd.DataFrame(cfg_rows)
+
+        def _S_for(linea):
+            return {"Pan (kg)": S_pan, "Bolleria": S_bol, "Pasteleria": S_pas, "Cafe": S_caf}.get(linea, [1.0]*12)
+
+        rows = []
+        for _, r in pro_cfg.iterrows():
+            Sv = _S_for(r["Linea"])
+            U_mes = np.array([r["Base_dia"]]*12, dtype=float) * np.array(D)*np.array(R)*np.array(E)*np.array(Sv)
+            for j, mes in enumerate(MESES):
+                uds = float(np.round(U_mes[j], 0))
+                rows.append({
+                    "Mes": mes, "Linea": r["Linea"], "SKU": r["SKU"],
+                    "Unidades": uds, "Precio": r["Precio"], "Venta_mes": uds * r["Precio"]
+                })
+        sku_pro_df = pd.DataFrame(rows)
+
+        if not sku_pro_df.empty:
+            add_units = (
+                sku_pro_df.groupby(["Mes","Linea"])["Unidades"].sum().unstack(fill_value=0.0)
+            )
+            index_order = U_df["Mes"].tolist()
+            add_units = add_units.reindex(index_order).fillna(0.0)
+            pro_units = add_units.copy()
+            for col in add_units.columns:
+                if col in U_df.columns:
+                    aligned = add_units[col].values
+                    U_df[col] = (U_df[col].astype(float) + aligned).round(0).astype(int)
+            U_df["Total"] = U_df[["Pan (kg)","Bolleria","Pasteleria","Cafe"]].sum(axis=1)
 
     # 2) Costos unitarios de insumos (preferencia: planilla OFICIAL; fallback: BOM)
     detalles_costeo = {}
@@ -723,16 +839,61 @@ def compute_model():
     # 4) Precios de venta (1 representante por línea)
     PRICE = {"Pan (kg)":2200.0, "Bolleria":1200.0, "Pasteleria":3500.0, "Cafe":2500.0}
 
-    # 5) Build ventas por línea (representantes)
-    rows=[]
+    # 5) Ventas por línea (representantes)
+    rows = []
     for i, mes in enumerate(MESES):
-        rows.append({"Mes": mes,"Linea":"Pan (kg)","SKU":"Pan (kg)","Unidades": float(U_df.loc[i,"Pan (kg)"]), "Precio": PRICE["Pan (kg)"]})
-        rows.append({"Mes": mes,"Linea":"Bolleria","SKU":"Croissant","Unidades": float(U_df.loc[i,"Bolleria"]), "Precio": PRICE["Bolleria"]})
-        rows.append({"Mes": mes,"Linea":"Pasteleria","SKU":"Trozo Pastel","Unidades": float(U_df.loc[i,"Pasteleria"]), "Precio": PRICE["Pasteleria"]})
-        rows.append({"Mes": mes,"Linea":"Cafe","SKU":"Cafe","Unidades": float(U_df.loc[i,"Cafe"]), "Precio": PRICE["Cafe"]})
+        def _u_rep(col: str) -> float:
+            base_val = float(U_df.loc[i, col])
+            if (
+                isinstance(pro_units, pd.DataFrame)
+                and not pro_units.empty
+                and col in pro_units.columns
+                and mes in pro_units.index
+            ):
+                return max(base_val - float(pro_units.loc[mes, col]), 0.0)
+            return base_val
+
+        pan_rep = _u_rep("Pan (kg)")
+        bol_rep = _u_rep("Bolleria")
+        pas_rep = _u_rep("Pasteleria")
+        caf_rep = _u_rep("Cafe")
+
+        rows.append({
+            "Mes": mes,
+            "Linea": "Pan (kg)",
+            "SKU": "Pan (kg)",
+            "Unidades": pan_rep,
+            "Precio": PRICE["Pan (kg)"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Bolleria",
+            "SKU": "Croissant",
+            "Unidades": bol_rep,
+            "Precio": PRICE["Bolleria"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Pasteleria",
+            "SKU": "Trozo Pastel",
+            "Unidades": pas_rep,
+            "Precio": PRICE["Pasteleria"]
+        })
+        rows.append({
+            "Mes": mes,
+            "Linea": "Cafe",
+            "SKU": "Cafe",
+            "Unidades": caf_rep,
+            "Precio": PRICE["Cafe"]
+        })
+
     sku_df = pd.DataFrame(rows)
+
+    if not sku_pro_df.empty:
+        sku_df = pd.concat([sku_df, sku_pro_df], ignore_index=True)
+
     if not sku_df.empty:
-        sku_df["Venta_mes"] = sku_df["Unidades"]*sku_df["Precio"]
+        sku_df["Venta_mes"] = sku_df["Unidades"] * sku_df["Precio"]
 
     # Complementarios: ventas y COGS por mes desde overrides (con opción estacional)
     ov_v = st.session_state.get("comp_ventas_dia_override", None)
@@ -750,7 +911,7 @@ def compute_model():
         ventas_compl_mes = pd.Series(base_factor * 0.0, index=MESES, dtype=float)
         cogs_compl_mes   = pd.Series(base_factor * 0.0, index=MESES, dtype=float)
 
-    # 6) COGS por mes (líneas principales)
+    # 6) COGS por mes (líneas + complementarios)
     det_rows=[]
     for (mes, linea), g in sku_df.groupby(["Mes","Linea"]):
         lin_key_per = linea.replace(" (kg)","")
@@ -762,9 +923,14 @@ def compute_model():
     cogs_mes_sin_compl = cogs_detalle.groupby("Mes")["COGS"].sum().reindex(MESES).fillna(0.0) if not cogs_detalle.empty else pd.Series(0.0, index=MESES)
     cogs_mes_total = cogs_mes_sin_compl + cogs_compl_mes
 
-    # 6b) Detalle complementarios (agregado por mes)
     compl_rows = [
-        {"Linea": "Complementarios","Mes": mes,"Unidades": np.nan,"Costo_unit_CLP": np.nan,"COGS": float(cogs_compl_mes.loc[mes])}
+        {
+            "Linea": "Complementarios",
+            "Mes": mes,
+            "Unidades": np.nan,
+            "Costo_unit_CLP": np.nan,
+            "COGS": float(cogs_compl_mes.loc[mes])
+        }
         for mes in MESES
     ]
     cogs_detalle_full = pd.concat([cogs_detalle, pd.DataFrame(compl_rows)], ignore_index=True)
@@ -954,12 +1120,39 @@ def render_ajuste_diario():
     # Aporte complementarios (día)
     comp_sales_day  = float(st.session_state.get("comp_ventas_dia_override") or 0.0)
 
+    # Aporte SKUs PRO (día)
+    pro_items = []
+    aporte_pro_dia = 0.0
+    if st.session_state.get("pro_use_global", True):
+        adj_map = {
+            "Pan (kg)": adj_pan,
+            "Bolleria": adj_bol,
+            "Bollería": adj_bol,
+            "Pasteleria": adj_pas,
+            "Pastelería": adj_pas,
+            "Cafe": adj_caf,
+            "Café": adj_caf,
+        }
+        for i, item in enumerate(PRO_SKUS):
+            precio = float(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+            base_val = float(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+            linea_key = item["Linea"]
+            adj_linea = adj_map.get(linea_key, adj_map.get(linea_key.replace("Cafe", "Café"), 1.0))
+            aporte_pro_dia += base_val * precio * adj_linea
+            pro_items.append({
+                "SKU": item["SKU"],
+                "base": base_val,
+                "precio": precio,
+                "adj": adj_linea,
+            })
+
     # Totales con la combinación actual
     ingreso_lineas_actual = (
         (base_pan / PAN_PIEZAS_POR_KG) * PRECIO_PAN_KG * adj_pan
         + base_bol * PRECIO_BOL * adj_bol
         + base_pas * PRECIO_PAS * adj_pas
         + base_caf * PRECIO_CAF * adj_caf
+        + aporte_pro_dia
     )
     total_con_comp = ingreso_lineas_actual + float(comp_sales_day)
 
@@ -1001,13 +1194,30 @@ def render_ajuste_diario():
     })
     st.dataframe(tabla_bases, use_container_width=True)
 
+    aporte_pro_sugerido = 0.0
+    pro_sug_rows = []
+    if pro_items:
+        for info in pro_items:
+            base_sug = int(round(info["base"] * k))
+            aporte_pro_sugerido += base_sug * info["precio"] * info["adj"]
+            pro_sug_rows.append({
+                "SKU": info["SKU"],
+                "Base actual": int(info["base"]),
+                "Sugerida para meta": base_sug,
+            })
+
     ingreso_lineas_sugerido = (
         (sug_pan_piezas / PAN_PIEZAS_POR_KG) * PRECIO_PAN_KG * adj_pan
         + sug_bol * PRECIO_BOL * adj_bol
         + sug_pas * PRECIO_PAS * adj_pas
         + sug_caf * PRECIO_CAF * adj_caf
+        + aporte_pro_sugerido
     )
     total_dia_prev = ingreso_lineas_sugerido + float(comp_sales_day)
+
+    if pro_sug_rows:
+        st.markdown("**SKUs PRO**")
+        st.dataframe(pd.DataFrame(pro_sug_rows), use_container_width=True)
 
     c1b, c2b, c3b = st.columns(3)
     c1b.metric("Objetivo de líneas (meta − Complementarios)", clp(objetivo_lineas))
@@ -1317,15 +1527,6 @@ with tabs[4]:
     metric_clp("Total líneas (año)", total_lineas)
     metric_clp("Total complementarios (año)", total_comp)
     metric_clp("Total general (año)", total_general)
-# ============================ 02c – Planeación PRO (por SKU) =================
-# Catálogo inicial (ajústalo a gusto)
-PRO_SKUS = [
-    {"Linea": "Pan (kg)", "SKU": "Pan Masa Madre 1kg",     "precio_sugerido": 3500, "base_dia": 40},
-    {"Linea": "Pan (kg)", "SKU": "Paneton Masa Madre 1kg", "precio_sugerido": 5000, "base_dia": 15},
-    # Si quisieras vender el concentrado al público, descomenta:
-    # {"Linea": "Pan (kg)", "SKU": "Concentrado Masa Madre 1kg", "precio_sugerido": 5200, "base_dia": 0},
-]
-
 # Mapa de factores S por línea (reusa los tuyos)
 _S_FACTORS = {
     "Pan (kg)": lambda: S_pan,
@@ -1341,26 +1542,6 @@ def _unidades_mensuales_desde_base(base_dia, linea, Dv, Rv, Ev):
     Sv = _factor_linea(linea)
     arr = np.array([base_dia]*12, dtype=float) * np.array(Dv)*np.array(Rv)*np.array(Ev)*np.array(Sv)
     return arr.round(0)
-
-# --- Costeo con BOM anidado para Masa Madre ----------------------------------
-_NESTED_INS = _norm_txt("Masa madre (concentrado)")
-_NESTED_SKU = "Concentrado Masa Madre 1kg"
-
-def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
-    det, c = costeo_insumos_por_sku(BOM, INS_PREP, sku_name, merma_global_pct=0.0)
-    if det.empty:
-        return det, float(c)
-    if fabricar_concentrado and "__ins_norm__" in det.columns and det["__ins_norm__"].notna().any():
-        mask = det["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
-        if mask.any():
-            det_nested, c_nested = costeo_insumos_por_sku(BOM, INS_PREP, _NESTED_SKU, merma_global_pct=0.0)
-            det = det.copy()
-            det.loc[mask, "Precio_base"] = float(c_nested)
-            det["Consumo_base"] = pd.to_numeric(det.get("Consumo_base"), errors="coerce")
-            det["Precio_base"]  = pd.to_numeric(det.get("Precio_base"),  errors="coerce")
-            det["Subtotal_CLP"] = (det["Consumo_base"] * det["Precio_base"]).fillna(0.0)
-            c = float(det["Subtotal_CLP"].sum())
-    return det, float(c)
 
 # --------------------------- Pestaña PRO -------------------------------------
 with tabs[3]:
