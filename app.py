@@ -453,29 +453,38 @@ with st.sidebar.expander("Ajustes rápidos PRO (precio y base/día)", expanded=F
 
     # Función de sincronización canónica (tab <-> sidebar)
     def _sync_from_sidebar(i: int):
-        st.session_state[f"pro_p_{i}"] = int(st.session_state.get(f"sb_pro_p_{i}", 0))
-        st.session_state[f"pro_b_{i}"] = int(st.session_state.get(f"sb_pro_b_{i}", 0))
+        p_key = f"sb_pro_p_{i}"
+        b_key = f"sb_pro_b_{i}"
+        if p_key in st.session_state:
+            st.session_state[f"pro_p_{i}"] = int(st.session_state[p_key])
+        if b_key in st.session_state:
+            st.session_state[f"pro_b_{i}"] = int(st.session_state[b_key])
 
     for i, item in enumerate(PRO_SKUS):
         sku = item["SKU"]
-        # Inicializa las keys del SIDEBAR desde las canónicas (solo primera vez)
-        if f"sb_pro_p_{i}" not in st.session_state:
-            st.session_state[f"sb_pro_p_{i}"] = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
-        if f"sb_pro_b_{i}" not in st.session_state:
-            st.session_state[f"sb_pro_b_{i}"] = int(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+        canon_p = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+        canon_b = int(st.session_state.get(f"pro_b_{i}", item["base_dia"]))
+
+        sb_p_key = f"sb_pro_p_{i}"
+        sb_b_key = f"sb_pro_b_{i}"
+
+        if sb_p_key not in st.session_state or int(st.session_state[sb_p_key]) != canon_p:
+            st.session_state[sb_p_key] = canon_p
+        if sb_b_key not in st.session_state or int(st.session_state[sb_b_key]) != canon_b:
+            st.session_state[sb_b_key] = canon_b
 
         st.caption(f"**{sku}**")
 
         st.number_input(
             f"Precio – {sku}",
             min_value=0, max_value=50_000, step=100,
-            key=f"sb_pro_p_{i}",
+            key=sb_p_key,
             on_change=lambda i=i: _sync_from_sidebar(i),
         )
         st.number_input(
             f"Base/día – {sku}",
             min_value=0, max_value=10_000, step=1,
-            key=f"sb_pro_b_{i}",
+            key=sb_b_key,
             on_change=lambda i=i: _sync_from_sidebar(i),
         )
 
