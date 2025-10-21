@@ -1269,9 +1269,55 @@ with tabs[0]:
     )
     st.caption("Nota: la mermelada se fija por kg; no usamos pote.")
 
+    st.subheader("SKUs PRO (Masa Madre & Panetón)")
+    with st.expander("Ajustes por SKU (precio y base/día)", expanded=False):
+        def _sync_from_tab(i: int, kind: str):
+            src = f"pro_{kind}_tab_{i}"
+            dst = f"pro_{kind}_{i}"
+            st.session_state[dst] = st.session_state.get(src, st.session_state.get(dst, 0))
+
+        for i, item in enumerate(PRO_SKUS):
+            sku = item["SKU"]
+            c1, c2 = st.columns(2)
+
+            with c1:
+                p_val = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+                p_key = f"pro_p_tab_{i}"
+                if st.session_state.get(p_key) != p_val:
+                    st.session_state[p_key] = p_val
+                st.number_input(
+                    f"Precio – {sku}",
+                    min_value=0,
+                    max_value=50_000,
+                    value=p_val,
+                    key=p_key,
+                    on_change=_sync_from_tab,
+                    args=(i, "p"),
+                    help="Precio sugerido/actual para este SKU PRO",
+                )
+
+            with c2:
+                b_val = int(st.session_state.get(f"pro_b_{i}", item.get("base_dia", 0)))
+                b_key = f"pro_b_tab_{i}"
+                if st.session_state.get(b_key) != b_val:
+                    st.session_state[b_key] = b_val
+                st.number_input(
+                    f"Base/día – {sku}",
+                    min_value=0,
+                    max_value=10_000,
+                    value=b_val,
+                    key=b_key,
+                    on_change=_sync_from_tab,
+                    args=(i, "b"),
+                    help="Cantidad base diaria para este SKU PRO",
+                )
+
+            st.caption("Los cambios aquí se sincronizan con el sidebar y la pestaña PRO.")
+            st.divider()
+
     with st.expander("Fórmula de unidades (por línea)"):
         st.markdown("""
-**Unidades_mes = base_día × Días_mes × Rampa_mes × Estacionalidad_mes × S_mes × Uplifts_mes**  
+**Unidades_mes = base_día × Días_mes × Rampa_mes × Estacionalidad_mes × S_mes × Uplifts_mes**
 - *Pan se muestra en kg: piezas ÷ 10 = kg.*
         """)
 
