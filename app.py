@@ -1519,25 +1519,22 @@ with tabs[4]:
                 cogs_linea = cogs_linea.drop(columns="cogs_pro")
         df_lineas = df_lineas.merge(cogs_linea.rename(columns={"COGS": "cogs"}), on="Linea", how="left")
     # --- Sanitizar df_lineas antes de calcular margen ---
-    # 1) Quitar columnas duplicadas y normalizar índice
     df_lineas = df_lineas.loc[:, ~df_lineas.columns.duplicated()].copy()
     df_lineas = df_lineas.reset_index(drop=True)
 
-    # 2) Helper: tomar una columna aun si vino duplicada y pasar a numérico
     def _solid_num_col(df, name):
         col = df[name] if name in df.columns else 0
         if isinstance(col, pd.DataFrame):
             col = col.iloc[:, 0]
         return pd.to_numeric(col, errors="coerce").fillna(0.0)
 
-    # 3) Asegurar existencia de 'cogs' y tipos numéricos
     if "cogs" not in df_lineas.columns:
         df_lineas["cogs"] = 0.0
 
     ingreso_s = _solid_num_col(df_lineas, "ingreso").to_numpy()
     cogs_s    = _solid_num_col(df_lineas, "cogs").to_numpy()
 
-    # 4) Evitar alineación por índice: operar por valores (arrays)
+    # Evitar alineación por índice: operar por valores (arrays)
     df_lineas["margen"] = ingreso_s - cogs_s
     df_lineas["unidades"] = pd.to_numeric(df_lineas.get("unidades", df_lineas.get("Unidades", 0)), errors="coerce").fillna(0.0)
 
