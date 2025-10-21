@@ -175,8 +175,8 @@ def convert_amount(cant, u_from, u_to, insumo_norm=""):
     if d is not None:
         if u_from == "g"  and u_to == "ml": return cant / d
         if u_from == "ml" and u_to == "g":  return cant * d
-        if u_from == "kg" and u_to == "l":  return (cant*1000.0)/d/1000.0
-        if u_from == "l"  and u_to == "kg": return (cant*1000.0)*d/1000.0
+        if u_from == "kg" and u_to == "l":  return cant / d
+        if u_from == "l"  and u_to == "kg": return cant * d
 
     return np.nan  # no convertible
 
@@ -189,8 +189,24 @@ PRO_SKUS = [
     {"Linea": "Pan (kg)", "SKU": "Paneton Masa Madre 1kg", "precio_sugerido": 5000, "base_dia": 15},
 ]
 
+sku_pro_df = pd.DataFrame()
+consumo_concentrado_df = pd.DataFrame()
+
+def _pro_agg_from_skus(df: pd.DataFrame) -> dict:
+    if df is None or len(df) == 0:
+        return {"Línea": "PRO", "unidades": 0, "ingreso": 0.0, "cogs": 0.0, "margen": 0.0}
+    out = {
+        "Línea": "PRO",
+        "unidades": int(pd.to_numeric(df.get("unidades", df.get("Unidades", 0)), errors="coerce").fillna(0).sum()),
+        "ingreso": float(pd.to_numeric(df.get("ingreso", df.get("Venta_mes", 0.0)), errors="coerce").fillna(0.0).sum()),
+    }
+    for col in ["cogs", "margen"]:
+        if col in df.columns:
+            out[col] = float(pd.to_numeric(df[col], errors="coerce").fillna(0.0).sum())
+    return out
+
 _NESTED_INS = _norm_txt("Masa madre (concentrado)")
-_NESTED_SKU = "Concentrado Masa Madre 1kg"
+_NESTED_SKU_ALIASES = ["Concentrado Masa Madre 1kg", "Concentrado Masa Madre 1 kg"]
 
 def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
     det, c = costeo_insumos_por_sku(BOM, INS_PREP, sku_name, merma_global_pct=0.0)
@@ -199,7 +215,12 @@ def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
     if fabricar_concentrado and "__ins_norm__" in det.columns and det["__ins_norm__"].notna().any():
         mask = det["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
         if mask.any():
-            det_nested, c_nested = costeo_insumos_por_sku(BOM, INS_PREP, _NESTED_SKU, merma_global_pct=0.0)
+            det_nested, c_nested = pd.DataFrame(), 0.0
+            for _alt in _NESTED_SKU_ALIASES:
+                dn, cn = costeo_insumos_por_sku(BOM, INS_PREP, _alt, merma_global_pct=0.0)
+                if not dn.empty:
+                    det_nested, c_nested = dn, cn
+                    break
             det = det.copy()
             det.loc[mask, "Precio_base"] = float(c_nested)
             det["Consumo_base"] = pd.to_numeric(det.get("Consumo_base"), errors="coerce")
@@ -716,6 +737,9 @@ def cunit_insumos_oficial(linea: str) -> float:
     return costo_ud
 
 def compute_model():
+    global sku_pro_df, consumo_concentrado_df
+    sku_pro_df = pd.DataFrame()
+    consumo_concentrado_df = pd.DataFrame()
     Cap = [np.inf]*12
     def vec_units(b, Dv, Rv, Ev, Sv, Vv, Cv, Capv):
         arr = np.array(b)*np.array(Dv)*np.array(Rv)*np.array(Ev)*np.array(Sv)*np.array(Vv)*np.array(Cv)
@@ -835,6 +859,50 @@ def compute_model():
         per_unit_map = tmp.set_index("Linea")["per_unit_total"].to_dict()
     else:
         per_unit_map = {"Pan":0.0,"Bolleria":0.0,"Pasteleria":0.0,"Cafe":0.0}
+
+    if not sku_pro_df.empty:
+        sku_pro_df = sku_pro_df.copy()
+        sku_pro_df["unidades"] = pd.to_numeric(
+            sku_pro_df.get("Unidades", sku_pro_df.get("unidades", 0)),
+            errors="coerce"
+        ).fillna(0.0)
+        sku_pro_df["ingreso"] = pd.to_numeric(
+            sku_pro_df.get("Venta_mes", sku_pro_df.get("ingreso", 0.0)),
+            errors="coerce"
+        ).fillna(0.0)
+
+        def _pro_unit_cost(linea: str) -> float:
+            lin_key_per = str(linea).replace(" (kg)", "")
+            return float(cunit_ins.get(linea, 0.0)) + float(per_unit_map.get(lin_key_per, 0.0))
+
+        sku_pro_df["cogs"] = sku_pro_df["unidades"] * sku_pro_df["Linea"].map(_pro_unit_cost).fillna(0.0)
+        sku_pro_df["margen"] = sku_pro_df["ingreso"] - sku_pro_df["cogs"]
+
+        if st.session_state.get("pro_fabricar_conc", False):
+            consumo_rows = []
+            for sku_name in sku_pro_df["SKU"].dropna().unique():
+                det_sku, _ = costeo_sku_pro(sku_name, fabricar_concentrado=True)
+                if det_sku.empty or "__ins_norm__" not in det_sku.columns:
+                    continue
+                mask = det_sku["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
+                if not mask.any():
+                    continue
+                consumo_unit = pd.to_numeric(det_sku.loc[mask, "Consumo_base"], errors="coerce").fillna(0.0).sum()
+                subtotal = pd.to_numeric(det_sku.loc[mask, "Subtotal_CLP"], errors="coerce").fillna(0.0).sum()
+                precio_unit = (subtotal / consumo_unit) if consumo_unit else 0.0
+                for _, row in sku_pro_df.loc[sku_pro_df["SKU"] == sku_name].iterrows():
+                    unidades = float(row.get("Unidades", row.get("unidades", 0.0)))
+                    consumo_total = consumo_unit * unidades
+                    costo_total = consumo_total * precio_unit
+                    consumo_rows.append({
+                        "Mes": row.get("Mes"),
+                        "SKU": sku_name,
+                        "Consumo_concentrado": consumo_total,
+                        "Costo_concentrado": costo_total,
+                    })
+            consumo_concentrado_df = pd.DataFrame(consumo_rows)
+        else:
+            consumo_concentrado_df = pd.DataFrame()
 
     # 4) Precios de venta (1 representante por línea)
     PRICE = {"Pan (kg)":2200.0, "Bolleria":1200.0, "Pasteleria":3500.0, "Cafe":2500.0}
@@ -1049,6 +1117,8 @@ def compute_model():
         EBITDA=EBITDA,
         capex_total=float(capex_total),
         materiales_total=float(mat_total),
+        sku_pro_df=sku_pro_df,
+        consumo_concentrado_df=consumo_concentrado_df,
     )
 
 
@@ -1192,6 +1262,19 @@ def render_ajuste_diario():
             sug_caf
         ]
     })
+    if st.session_state.get("pro_use_global", True) and pro_items:
+        base_pro_total = int(round(sum(info.get("base", 0.0) for info in pro_items)))
+        sug_pro_total = int(round(sum(float(info.get("base", 0.0)) * k for info in pro_items)))
+        tabla_bases = pd.concat([
+            tabla_bases,
+            pd.DataFrame([
+                {
+                    "Línea": "PRO",
+                    "Base actual": base_pro_total,
+                    "Sugerida para meta": sug_pro_total,
+                }
+            ])
+        ], ignore_index=True)
     st.dataframe(tabla_bases, use_container_width=True)
 
     aporte_pro_sugerido = 0.0
@@ -1269,9 +1352,55 @@ with tabs[0]:
     )
     st.caption("Nota: la mermelada se fija por kg; no usamos pote.")
 
+    st.subheader("SKUs PRO (Masa Madre & Panetón)")
+    with st.expander("Ajustes por SKU (precio y base/día)", expanded=False):
+        def _sync_from_tab(i: int, kind: str):
+            src = f"pro_{kind}_tab_{i}"
+            dst = f"pro_{kind}_{i}"
+            st.session_state[dst] = st.session_state.get(src, st.session_state.get(dst, 0))
+
+        for i, item in enumerate(PRO_SKUS):
+            sku = item["SKU"]
+            c1, c2 = st.columns(2)
+
+            with c1:
+                p_val = int(st.session_state.get(f"pro_p_{i}", item["precio_sugerido"]))
+                p_key = f"pro_p_tab_{i}"
+                if st.session_state.get(p_key) != p_val:
+                    st.session_state[p_key] = p_val
+                st.number_input(
+                    f"Precio – {sku}",
+                    min_value=0,
+                    max_value=50_000,
+                    value=p_val,
+                    key=p_key,
+                    on_change=_sync_from_tab,
+                    args=(i, "p"),
+                    help="Precio sugerido/actual para este SKU PRO",
+                )
+
+            with c2:
+                b_val = int(st.session_state.get(f"pro_b_{i}", item.get("base_dia", 0)))
+                b_key = f"pro_b_tab_{i}"
+                if st.session_state.get(b_key) != b_val:
+                    st.session_state[b_key] = b_val
+                st.number_input(
+                    f"Base/día – {sku}",
+                    min_value=0,
+                    max_value=10_000,
+                    value=b_val,
+                    key=b_key,
+                    on_change=_sync_from_tab,
+                    args=(i, "b"),
+                    help="Cantidad base diaria para este SKU PRO",
+                )
+
+            st.caption("Los cambios aquí se sincronizan con el sidebar y la pestaña PRO.")
+            st.divider()
+
     with st.expander("Fórmula de unidades (por línea)"):
         st.markdown("""
-**Unidades_mes = base_día × Días_mes × Rampa_mes × Estacionalidad_mes × S_mes × Uplifts_mes**  
+**Unidades_mes = base_día × Días_mes × Rampa_mes × Estacionalidad_mes × S_mes × Uplifts_mes**
 - *Pan se muestra en kg: piezas ÷ 10 = kg.*
         """)
 
@@ -1360,6 +1489,88 @@ with tabs[2]:
 
 # --- 03 Unidades & Ventas ----------------------------------------------------
 with tabs[4]:
+    st.subheader("01 – Demanda (resumen)")
+    incluir_pro = st.session_state.get("pro_use_global", True)
+    pro_df_global = MODEL.get("sku_pro_df", pd.DataFrame())
+    sku_df_model = MODEL["sku_df"].copy()
+    pro_skus = set()
+    if incluir_pro and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty:
+        pro_skus = set(pro_df_global["SKU"].dropna().unique())
+        sku_df_base = sku_df_model.loc[~sku_df_model["SKU"].isin(pro_skus)].copy()
+    else:
+        sku_df_base = sku_df_model
+
+    if not sku_df_base.empty:
+        df_lineas = (
+            sku_df_base.groupby("Linea", as_index=False)
+            .agg(unidades=("Unidades", "sum"), ingreso=("Venta_mes", "sum"))
+        )
+    else:
+        df_lineas = pd.DataFrame(columns=["Linea", "unidades", "ingreso"])
+
+    cogs_detalle = MODEL.get("COGS_detalle", pd.DataFrame())
+    if not df_lineas.empty and not cogs_detalle.empty:
+        cogs_linea = cogs_detalle.groupby("Linea", as_index=False)["COGS"].sum()
+        if incluir_pro and pro_skus and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty and "cogs" in pro_df_global.columns:
+            pro_cogs_linea = pro_df_global.groupby("Linea", as_index=False)["cogs"].sum()
+            cogs_linea = cogs_linea.merge(pro_cogs_linea, on="Linea", how="left", suffixes=("", "_pro"))
+            if "cogs_pro" in cogs_linea.columns:
+                cogs_linea["COGS"] = cogs_linea["COGS"] - cogs_linea["cogs_pro"].fillna(0.0)
+                cogs_linea = cogs_linea.drop(columns="cogs_pro")
+        df_lineas = df_lineas.merge(cogs_linea.rename(columns={"COGS": "cogs"}), on="Linea", how="left")
+    if "cogs" not in df_lineas.columns:
+        df_lineas["cogs"] = 0.0
+
+    # --- Sanitizar df_lineas antes de calcular margen ---
+    # 1) Quitar columnas duplicadas y normalizar índice
+    df_lineas = df_lineas.loc[:, ~df_lineas.columns.duplicated()].copy()
+    df_lineas = df_lineas.reset_index(drop=True)
+
+    # 2) Helper: tomar una columna aun si vino duplicada y pasar a numérico
+    def _solid_num_col(df, name):
+        col = df[name]
+        # Si por duplicados devolviera un DataFrame, quedarnos con la primera col
+        if isinstance(col, pd.DataFrame):
+            col = col.iloc[:, 0]
+        return pd.to_numeric(col, errors="coerce").fillna(0.0)
+
+    # 3) Asegurar existencia de 'cogs' y tipos numéricos
+    if "cogs" not in df_lineas.columns:
+        df_lineas["cogs"] = 0.0
+
+    ingreso_s = _solid_num_col(df_lineas, "ingreso")
+    cogs_s    = _solid_num_col(df_lineas, "cogs")
+
+    # 4) Evitar alineación por índice: operar por valores
+    df_lineas["margen"] = ingreso_s.to_numpy() - cogs_s.to_numpy()
+    df_lineas["unidades"] = pd.to_numeric(df_lineas.get("unidades", df_lineas.get("Unidades", 0)), errors="coerce").fillna(0.0)
+
+    df_lineas = df_lineas.rename(columns={"Linea": "Línea"})
+    df_lineas = df_lineas[["Línea", "unidades", "ingreso", "cogs", "margen"]]
+
+    if incluir_pro and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty:
+        pro_summary = _pro_agg_from_skus(pro_df_global)
+        df_lineas = pd.concat([df_lineas, pd.DataFrame([pro_summary])], ignore_index=True)
+
+    show_df_money(
+        df_lineas.assign(
+            **{"unidades": lambda d: d["unidades"].map(lambda x: f"{int(round(float(x))):,}".replace(",", ".") if pd.notna(x) else "—")}
+        ),
+        money_cols=["ingreso", "cogs", "margen"],
+        use_container_width=True,
+    )
+
+    if incluir_pro and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty:
+        u = int(pd.to_numeric(pro_df_global.get("unidades", pro_df_global.get("Unidades", 0)), errors="coerce").fillna(0).sum())
+        rev = float(pd.to_numeric(pro_df_global.get("ingreso", pro_df_global.get("Venta_mes", 0.0)), errors="coerce").fillna(0.0).sum())
+        total_rev = float(pd.to_numeric(df_lineas["ingreso"], errors="coerce").fillna(0.0).sum())
+        mix = 100.0 * rev / total_rev if total_rev > 0 else 0.0
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Unidades PRO (día)", f"{u:,}".replace(",", "."), key="pro_summary_u")
+        c2.metric("Ingreso PRO (día)", clp(rev), key="pro_summary_rev")
+        c3.metric("Mix PRO", f"{mix:.1f}%", key="pro_summary_mix")
+
+    st.markdown("---")
     st.subheader("Unidades por línea (escenario activo)")
     st.dataframe(MODEL["U_df"], use_container_width=True)
 
@@ -1548,7 +1759,11 @@ with tabs[3]:
     st.subheader("Planeación y Márgenes por SKU (PRO)")
 
     st.markdown("**Factores de escala**: usa tus D, R, E y S_linea actuales.")
-    fabricar_conc = st.checkbox("Fabricar Concentrado de Masa Madre in-house (BOM anidado)", value=True)
+    fabricar_conc = st.checkbox(
+        "Fabricar Concentrado de Masa Madre in-house (BOM anidado)",
+        value=st.session_state.get("pro_fabricar_conc", True),
+        key="pro_fabricar_conc"
+    )
 
     st.markdown("### Catálogo de SKUs (precio y base diaria)")
     cfg_rows = []
@@ -1700,6 +1915,21 @@ with tabs[5]:
     b1,b2 = st.columns(2)
     b1.metric("OPEX bruto (año)", clp(MODEL["OPEX_mes"].sum()))
     b2.metric("OPEX neto (año)", clp(MODEL["OPEX_neto"].sum()))
+
+    if st.session_state.get("pro_fabricar_conc", False):
+        st.subheader("Consumo por SKUs PRO (Concentrado in-house)")
+        consumo_df = MODEL.get("consumo_concentrado_df", pd.DataFrame())
+        if isinstance(consumo_df, pd.DataFrame) and not consumo_df.empty:
+            show_df_money(
+                consumo_df.assign(
+                    **{"Consumo_concentrado": lambda d: d["Consumo_concentrado"].map(lambda x: f"{float(x):,.2f}".replace(",", ".") if pd.notna(x) else "—")},
+                    **{"Costo_concentrado": lambda d: d["Costo_concentrado"].map(clp)},
+                ),
+                money_cols=["Costo_concentrado"],
+                use_container_width=True,
+            )
+        else:
+            st.info("No hay consumo de concentrado disponible para los SKUs PRO.")
 
 # --- 04b IVA ------------------------------------------------------------------
 with tabs[6]:
@@ -2046,6 +2276,26 @@ with tabs[11]:
             "Margen unit.": margen,
             "Margen %": margen_pct,
             "Markup % (sobre costo)": markup_pct
+        })
+
+    incluir_pro = st.session_state.get("pro_use_global", True)
+    pro_df_global = MODEL.get("sku_pro_df", pd.DataFrame())
+    if incluir_pro and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty:
+        unidades_pro = float(pd.to_numeric(pro_df_global.get("unidades", pro_df_global.get("Unidades", 0)), errors="coerce").fillna(0.0).sum())
+        ingreso_pro = float(pd.to_numeric(pro_df_global.get("ingreso", pro_df_global.get("Venta_mes", 0.0)), errors="coerce").fillna(0.0).sum())
+        cogs_pro = float(pd.to_numeric(pro_df_global.get("cogs", 0.0), errors="coerce").fillna(0.0).sum()) if "cogs" in pro_df_global.columns else np.nan
+        precio_prom = (ingreso_pro / unidades_pro) if unidades_pro > 0 else 0.0
+        costo_prom = (cogs_pro / unidades_pro) if unidades_pro > 0 and not np.isnan(cogs_pro) else np.nan
+        margen_unit = (precio_prom - costo_prom) if not np.isnan(costo_prom) else np.nan
+        margen_pct = ((margen_unit / precio_prom) * 100.0) if precio_prom > 0 and not np.isnan(margen_unit) else np.nan
+        markup_pct = ((margen_unit / costo_prom) * 100.0) if not np.isnan(costo_prom) and costo_prom > 0 and not np.isnan(margen_unit) else np.nan
+        rows.append({
+            "Línea": "PRO",
+            "Precio": precio_prom,
+            "Costo unit.": costo_prom,
+            "Margen unit.": margen_unit,
+            "Margen %": margen_pct,
+            "Markup % (sobre costo)": markup_pct,
         })
 
     df_marg = pd.DataFrame(rows)
