@@ -1518,9 +1518,24 @@ with tabs[4]:
                 cogs_linea["COGS"] = cogs_linea["COGS"] - cogs_linea["cogs_pro"].fillna(0.0)
                 cogs_linea = cogs_linea.drop(columns="cogs_pro")
         df_lineas = df_lineas.merge(cogs_linea.rename(columns={"COGS": "cogs"}), on="Linea", how="left")
+    # --- Sanitizar df_lineas antes de calcular margen ---
+    df_lineas = df_lineas.loc[:, ~df_lineas.columns.duplicated()].copy()
+    df_lineas = df_lineas.reset_index(drop=True)
+
+    def _solid_num_col(df, name):
+        col = df[name] if name in df.columns else 0
+        if isinstance(col, pd.DataFrame):
+            col = col.iloc[:, 0]
+        return pd.to_numeric(col, errors="coerce").fillna(0.0)
+
     if "cogs" not in df_lineas.columns:
         df_lineas["cogs"] = 0.0
-    df_lineas["margen"] = df_lineas["ingreso"] - df_lineas["cogs"]
+
+    ingreso_s = _solid_num_col(df_lineas, "ingreso").to_numpy()
+    cogs_s    = _solid_num_col(df_lineas, "cogs").to_numpy()
+
+    # Evitar alineación por índice: operar por valores (arrays)
+    df_lineas["margen"] = ingreso_s - cogs_s
     df_lineas["unidades"] = pd.to_numeric(df_lineas.get("unidades", df_lineas.get("Unidades", 0)), errors="coerce").fillna(0.0)
 
     df_lineas = df_lineas.rename(columns={"Linea": "Línea"})
@@ -1544,9 +1559,9 @@ with tabs[4]:
         total_rev = float(pd.to_numeric(df_lineas["ingreso"], errors="coerce").fillna(0.0).sum())
         mix = 100.0 * rev / total_rev if total_rev > 0 else 0.0
         c1, c2, c3 = st.columns(3)
-        c1.metric("Unidades PRO (día)", f"{u:,}".replace(",", "."), key="pro_summary_u")
-        c2.metric("Ingreso PRO (día)", clp(rev), key="pro_summary_rev")
-        c3.metric("Mix PRO", f"{mix:.1f}%", key="pro_summary_mix")
+        c1.metric("Unidades PRO (día)", f"{u:,}".replace(",", "."))
+        c2.metric("Ingreso PRO (día)", clp(rev))
+        c3.metric("Mix PRO", f"{mix:.1f}%")
 
     st.markdown("---")
     st.subheader("Unidades por línea (escenario activo)")
