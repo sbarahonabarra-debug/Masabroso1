@@ -1518,9 +1518,6 @@ with tabs[4]:
                 cogs_linea["COGS"] = cogs_linea["COGS"] - cogs_linea["cogs_pro"].fillna(0.0)
                 cogs_linea = cogs_linea.drop(columns="cogs_pro")
         df_lineas = df_lineas.merge(cogs_linea.rename(columns={"COGS": "cogs"}), on="Linea", how="left")
-    if "cogs" not in df_lineas.columns:
-        df_lineas["cogs"] = 0.0
-
     # --- Sanitizar df_lineas antes de calcular margen ---
     # 1) Quitar columnas duplicadas y normalizar índice
     df_lineas = df_lineas.loc[:, ~df_lineas.columns.duplicated()].copy()
@@ -1529,7 +1526,6 @@ with tabs[4]:
     # 2) Helper: tomar una columna aun si vino duplicada y pasar a numérico
     def _solid_num_col(df, name):
         col = df[name]
-        # Si por duplicados devolviera un DataFrame, quedarnos con la primera col
         if isinstance(col, pd.DataFrame):
             col = col.iloc[:, 0]
         return pd.to_numeric(col, errors="coerce").fillna(0.0)
