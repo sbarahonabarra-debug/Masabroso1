@@ -1537,7 +1537,7 @@ with tabs[4]:
     ingreso_s = _solid_num_col(df_lineas, "ingreso")
     cogs_s    = _solid_num_col(df_lineas, "cogs")
 
-    # 4) Evitar alineación por índice: operar por valores
+    # 4) Evitar alineación por índice: operar por valores (arrays)
     df_lineas["margen"] = ingreso_s.to_numpy() - cogs_s.to_numpy()
     df_lineas["unidades"] = pd.to_numeric(df_lineas.get("unidades", df_lineas.get("Unidades", 0)), errors="coerce").fillna(0.0)
 
