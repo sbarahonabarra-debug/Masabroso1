@@ -175,8 +175,8 @@ def convert_amount(cant, u_from, u_to, insumo_norm=""):
     if d is not None:
         if u_from == "g"  and u_to == "ml": return cant / d
         if u_from == "ml" and u_to == "g":  return cant * d
-        if u_from == "kg" and u_to == "l":  return (cant*1000.0)/d/1000.0
-        if u_from == "l"  and u_to == "kg": return (cant*1000.0)*d/1000.0
+        if u_from == "kg" and u_to == "l":  return cant / d
+        if u_from == "l"  and u_to == "kg": return cant * d
 
     return np.nan  # no convertible
 
@@ -206,7 +206,7 @@ def _pro_agg_from_skus(df: pd.DataFrame) -> dict:
     return out
 
 _NESTED_INS = _norm_txt("Masa madre (concentrado)")
-_NESTED_SKU = "Concentrado Masa Madre 1kg"
+_NESTED_SKU_ALIASES = ["Concentrado Masa Madre 1kg", "Concentrado Masa Madre 1 kg"]
 
 def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
     det, c = costeo_insumos_por_sku(BOM, INS_PREP, sku_name, merma_global_pct=0.0)
@@ -215,7 +215,12 @@ def costeo_sku_pro(sku_name: str, fabricar_concentrado: bool = True):
     if fabricar_concentrado and "__ins_norm__" in det.columns and det["__ins_norm__"].notna().any():
         mask = det["__ins_norm__"].astype(str).str.contains(_NESTED_INS, case=False, na=False)
         if mask.any():
-            det_nested, c_nested = costeo_insumos_por_sku(BOM, INS_PREP, _NESTED_SKU, merma_global_pct=0.0)
+            det_nested, c_nested = pd.DataFrame(), 0.0
+            for _alt in _NESTED_SKU_ALIASES:
+                dn, cn = costeo_insumos_por_sku(BOM, INS_PREP, _alt, merma_global_pct=0.0)
+                if not dn.empty:
+                    det_nested, c_nested = dn, cn
+                    break
             det = det.copy()
             det.loc[mask, "Precio_base"] = float(c_nested)
             det["Consumo_base"] = pd.to_numeric(det.get("Consumo_base"), errors="coerce")
@@ -1257,7 +1262,7 @@ def render_ajuste_diario():
             sug_caf
         ]
     })
-    if st.session_state.get("incluir_pro_global", True) and pro_items:
+    if st.session_state.get("pro_use_global", True) and pro_items:
         base_pro_total = int(round(sum(info.get("base", 0.0) for info in pro_items)))
         sug_pro_total = int(round(sum(float(info.get("base", 0.0)) * k for info in pro_items)))
         tabla_bases = pd.concat([
@@ -1485,7 +1490,7 @@ with tabs[2]:
 # --- 03 Unidades & Ventas ----------------------------------------------------
 with tabs[4]:
     st.subheader("01 – Demanda (resumen)")
-    incluir_pro = st.session_state.get("incluir_pro_global", True)
+    incluir_pro = st.session_state.get("pro_use_global", True)
     pro_df_global = MODEL.get("sku_pro_df", pd.DataFrame())
     sku_df_model = MODEL["sku_df"].copy()
     pro_skus = set()
@@ -1732,7 +1737,11 @@ with tabs[3]:
     st.subheader("Planeación y Márgenes por SKU (PRO)")
 
     st.markdown("**Factores de escala**: usa tus D, R, E y S_linea actuales.")
-    fabricar_conc = st.checkbox("Fabricar Concentrado de Masa Madre in-house (BOM anidado)", value=True)
+    fabricar_conc = st.checkbox(
+        "Fabricar Concentrado de Masa Madre in-house (BOM anidado)",
+        value=st.session_state.get("pro_fabricar_conc", True),
+        key="pro_fabricar_conc"
+    )
 
     st.markdown("### Catálogo de SKUs (precio y base diaria)")
     cfg_rows = []
@@ -2247,7 +2256,7 @@ with tabs[11]:
             "Markup % (sobre costo)": markup_pct
         })
 
-    incluir_pro = st.session_state.get("incluir_pro_global", True)
+    incluir_pro = st.session_state.get("pro_use_global", True)
     pro_df_global = MODEL.get("sku_pro_df", pd.DataFrame())
     if incluir_pro and isinstance(pro_df_global, pd.DataFrame) and not pro_df_global.empty:
         unidades_pro = float(pd.to_numeric(pro_df_global.get("unidades", pro_df_global.get("Unidades", 0)), errors="coerce").fillna(0.0).sum())
